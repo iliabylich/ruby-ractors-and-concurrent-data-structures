@@ -1,0 +1,6 @@
+[book]
+authors = ["Ilya Bylich"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Ruby, Ractors, and Concurrent Data Structures"
