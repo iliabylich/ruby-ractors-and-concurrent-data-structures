@@ -154,8 +154,8 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="intro"><a class="header" href="#intro">Intro</a></h1>
-<p>This story is about concurrent data structures in the context of Ruby. The goal here is to demonstrate how true parallelism can be achieved with global mutable state (which at the moment of writing is not supported by built-in Ruby primitives).</p>
-<p>Familiarity with Ruby, Rust, C (and a bit of other tooling) is nice to have, but hopefully not mandatory.</p>
+<p>This story is about concurrent data structures in the context of Ruby. The goal here is to demonstrate how true parallelism can be achieved with global mutable state (which at the time of writing, is not supported by built-in Ruby primitives).</p>
+<p>Familiarity with Ruby, Rust, C, (and a bit of other tooling) is nice to have, but hopefully not mandatory.</p>
 <p>The repository with code examples can be found <a href="https://github.com/iliabylich/ractors-playground">on GitHub</a>, to run it you need a relatively new version of Ruby (master branch is probably the best option if you can compile it locally), Rust and C compilers.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="ractors-what-and-why"><a class="header" href="#ractors-what-and-why">Ractors, what and why</a></h1>
 <p>A bit of history first (I promise, there will be code, a lot, soon). Ruby had threads for a really long time, but they are ... not quite parallel. That's right, <code>Thread</code> class in Ruby is a native thread under the hood (POSIX thread on Linux to be more specific, using <code>pthread_*</code> and friends) but in order to evaluate any instructions, a thread needs to acquire what's called the <code>Global Interpreter Lock</code> (or GIL). The consequence is obvious: only one thread can evaluate code at any point in time.</p>
@@ -166,17 +166,29 @@
 <li>you can't do CPU-bound computations in parallel (like calculating Fibonacci numbers)</li>
 </ol>
 <p>But things changed after Ruby 3.0 was released in 2020, now we have a new building brick called <code>Ractor</code>. Ractors are also implemented using threads internally but <strong>each Ractor has its own GIL</strong>. It was a very promising moment of "hey, we can have true multi-threaded parallel apps now!". As always there was a catch.</p>
-<p>Ruby objects have no internal synchronization logic, so if Ractor A pushes to an array and so does Ractor B then... nobody knows what's going to happen; it's a race condition. At best, it crashes, at worst one push overwrites the other, and something weird starts happening. Fixing it requires either wrapping every single object with a mutex or forbidding access to the same object from multiple threads. The solution was somewhere in the middle: you can only share objects but <strong>only if they are deeply frozen</strong> (there's a special <code>Ractor.make_shareable</code> API specifically for that). And don't get me wrong, I think it's a good compromise.</p>
-<p>So now you can do computations in parallel if they don't share any mutable data which sounds like a HUGE limitation for real-world apps. Just from the top of my head, things that I'd like to have:</p>
+<p>Ruby objects have no internal synchronization logic, so if Ractor A pushes to an array and so does Ractor B then... nobody knows what's going to happen; it's a race condition. At best, it crashes, at worst one push overwrites the other, and something weird starts happening. Fixing it requires wrapping every single object with a mutex or forbidding access to the same object from multiple threads. The solution was somewhere in the middle: you can only share objects but <strong>only if they are deeply frozen</strong> (there's a special <code>Ractor.make_shareable</code> API specifically for that). And don't get me wrong, I think it's a good compromise.</p>
+<p>So now you can do computations in parallel if they don't share any mutable data which sounds like a HUGE limitation for real-world apps. Just off the top of my head, things that I'd like to have:</p>
 <ol>
-<li>a global queue of requests (main thread accepts incoming connections and pushes them to the queue. Worker threads poll the queue and process requests)</li>
+<li>a global queue of requests (main thread accepts incoming connections and pushes them to the queue. Worker threads poll the queue and process requests.)</li>
 <li>a global pool of objects (to store database connections)</li>
 <li>a global data structure to store metrics</li>
 <li>a global in-memory cache for things that change rarely but are needed everywhere (e.g. dynamic app configuration)</li>
 </ol>
-<p>Calling <code>require</code> in a non-main Ractor wasn't possible before the latest version of Ruby (because it mutates shared global variable <code>$LOADED_FEATURES</code>), but now it's doable by sending a special message to the main Ractor that does <code>require</code>. Remember, the main Ractor can mutate anything; otherwise it would be the biggest breaking change in the history of programming languages, and then it responds back to Ractor that asked for it so that it can continue its execution loop.</p>
+<p>Calling <code>require</code> in a non-main Ractor wasn't possible before the latest version of Ruby (because it mutates shared global variable <code>$LOADED_FEATURES</code>), but now it's doable by sending a special message to the main Ractor that does <code>require</code> and waiting until it's done (remember, the main Ractor can mutate anything; otherwise it would be the biggest breaking change in the history of programming languages), and then it responds back to Ractor that asked for it so that it can continue its execution loop.</p>
+<h1 id="whats-wrong-with-forking"><a class="header" href="#whats-wrong-with-forking">What's wrong with forking</a></h1>
+<p>Without truly parallel threads a common option was (and de-facto is) to use <code>fork</code>. It works but it comes with its own set of problems:</p>
+<ol>
+<li>child processes share some memory with their parent, but only if the actual memory hasn't been changed by a child. Any attempt to modify it on the child level makes the OS create a copy of the page that is about to change, copy the content from parent to child, and then apply changes there. In practice it means that if your app does a lot of lazy initialization then most probably you'll not share much memory. <strong>With threads nothing has to be copied</strong></li>
+<li>you can't have any shared global state unless you use <a href="https://man7.org/linux/man-pages/man7/shm_overview.7.html">shared memory object API</a> which is not easy to get right. If you absolutely must track some global progress then you have to introduce some <a href="https://en.wikipedia.org/wiki/Inter-process_communication">IPC</a> (e.g. via <a href="https://man7.org/linux/man-pages/man2/socketpair.2.html"><code>socketpair</code></a>) which is not trivial. <strong>With threads everything can be shared and no additional abstraction is needed</strong></li>
+</ol>
+<blockquote>
+<p>Not a long time ago there was <a href="https://byroot.github.io/ruby/performance/2025/02/27/whats-the-deal-with-ractors.html">a series</a> <a href="https://byroot.github.io/ruby/performance/2025/03/04/the-pitchfork-story.html">of interesting articles</a> that mentioned Ractors in multiple places. One significant thing that I learned from it is that when you <code>fork</code> you can't share many internal data structures that are filled by Ruby under the hood. For example, inline method caches that are used to speed up method lookup. These caches depend on your runtime behaviour, and since each child process has its own flow they end up having different caches that are filled differently and in different order. This makes the OS to copy all pages that contain them.</p>
+</blockquote>
+<blockquote>
+<p>Side note: do you remember a thing called "REE" (Ruby Enterprise Edition)? It was an "optimized" version of Ruby in pre-2.0 era. One of its key features was "copy-on-write friendly GC" that was about storing bitflags for marked objects not in the object itself but in a separate centralized place. Then, when GC runs, it would only change those "externally" stored bits instead of modifying objects. This way each process only has to copy this table of flags instead of copying the entire heap. By the way, from what I know these patches have been backported to Ruby in 2.0.</p>
+</blockquote>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="ruby-heap"><a class="header" href="#ruby-heap">Ruby heap</a></h1>
-<p>After reading the previous section you might be under the impression that it's easier to think about Ruby heap as if there was a single "shared" heap full of frozen objects and a bunch of per-Ractor heaps that are mutable if you access it from the Ractor that owns it. Yes, maybe it's easier, but actually it's still a single heap and every object is accessible by every Ractor.</p>
+<p>After reading the previous section you might be under the impression that it's easier to think about Ruby heap as if there was a single "shared" heap full of frozen objects and a bunch of per-Ractor heaps that are mutable if you access it from the Ractor that owns it. Yes, maybe it's easier, but in reality, it's still a single heap, and every object is accessible by every Ractor.</p>
 <pre><code class="language-ruby">o = Object.new
 Ractor.make_shareable(o)
 id = o.object_id
@@ -194,7 +206,7 @@ r.take
 <pre><code>[MAIN] 5016 #&lt;Object:0x00007f97f72523a8&gt;
 [NON-MAIN] 5016 #&lt;Object:0x00007f97f72523a8&gt;
 </code></pre>
-<p>which proves the statement above. However, removing the line <code>Ractor.make_shareable(o)</code> breaks the code with an error <code>"4824" is id of the unshareable object on multi-ractor (RangeError)</code> (By the way, why is it a <code>RangeError</code>?).</p>
+<p>which proves the statement above. However, removing the line <code>Ractor.make_shareable(o)</code> breaks the code with an error <code>"5016" is id of the unshareable object on multi-ractor (RangeError)</code> (By the way, why is it a <code>RangeError</code>?).</p>
 <p>How can we make an object shareable (i.e. deeply frozen) but still mutable? Well, we can attach data on the C level to this object and make it mutable.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="counter-the-wrong-way"><a class="header" href="#counter-the-wrong-way">Counter, the wrong way</a></h1>
 <p>I'm going to write all data structures here in Rust, and then wrap them with C.</p>
@@ -227,7 +239,7 @@ impl PlainCounter {
 <blockquote>
 <p>By the way, you can't mutate it from multiple threads in Rust too. It simply won't compile.</p>
 </blockquote>
-<p>Then we need some glue code to expose these methods to C.</p>
+<p>Then, we need some glue code to expose these methods to C.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[no_mangle]
@@ -280,7 +292,7 @@ RUBY_FUNC_EXPORTED void Init_c_atomics(void) {
 <ol>
 <li>first, it calls <code>rb_ext_ractor_safe</code> which is <strong>absolutely required</strong> if we want to call functions defined by our C extension from non-main Ractors</li>
 <li>then, it declares (or re-opens if it's already defined) a module called <code>CAtomics</code></li>
-<li>and finally it called <code>init_plain_counter</code> that is defined in a file <code>plain-counter.h</code> see below. We'll have many data structures, so splitting code is a must.</li>
+<li>and finally it calls <code>init_plain_counter</code> that is defined in a file <code>plain-counter.h</code> (see below)</li>
 </ol>
 <pre><code class="language-c">// plain-counter.h
 #include "rust-atomics.h"
@@ -326,7 +338,7 @@ static void init_plain_counter(VALUE rb_mCAtomics) {
 <ol>
 <li>Declare metadata of the native data type that will be attached to instances of our <code>PlainCounter</code> Ruby class
 <ol>
-<li>It has default deallocation logic (because we don't allocate anything on creation)</li>
+<li>It has default deallocation logic that does nothing (because we don't allocate anything on creation)</li>
 <li>It's marked as <code>RUBY_TYPED_FROZEN_SHAREABLE</code>, this is required or otherwise we'll get an error if we call <code>Ractor.make_shareable</code> on it</li>
 </ol>
 </li>
@@ -352,7 +364,7 @@ end
 p counter.read
 # =&gt; 1000
 </code></pre>
-<p>Of course it does. Let's try multi-Ractor mode:</p>
+<p>Of course it works. Let's try multi-Ractor mode:</p>
 <pre><code class="language-ruby">require 'c_atomics'
 
 COUNTER = CAtomics::PlainCounter.new
@@ -367,7 +379,7 @@ p ractors.map(&amp;:take)
 p COUNTER.read
 # =&gt; 2357
 </code></pre>
-<p>That's a race condition, GREAT! Now we understand that it's possible to have objects that are <strong>shareable on the surface but mutable inside</strong>. All we need is to guarantee that internal data structure is synchronized and the key trick here is to use atomic variables and lock-free data structures.</p>
+<p>That's a race condition, GREAT! Now we understand that it's possible to have objects that are <strong>shareable on the surface but mutable inside</strong>. All we need is to guarantee that internal data structure is synchronized and the key trick here is to use mutexes, atomic variables and lock-free data structures.</p>
 <blockquote>
 <p>If you have some experience with Rust and you heard about lock-free data structures it might sound similar to you. Lock-free data structures have the same interface in Rust: they allow mutation through shared references to an object, like this:</p>
 </blockquote>
@@ -389,7 +401,9 @@ impl LockFreeQueue&lt;T&gt; {
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="atomics"><a class="header" href="#atomics">Atomics</a></h1>
 <blockquote>
-<p>SPOILER: I'm not an expert in this area and if you are really interested in learning how atomics work better read something else. I'll do my best to explain what I know but please take it with a grain of salt.</p>
+<p>SPOILER: I'm not an expert in this area and if you are really interested in learning how atomics work better read something else.</p>
+<p>If you are comfortable with Rust I would personally recommend <a href="https://marabos.nl/atomics/">"Rust Atomics and Locks" by Mara Bos</a></p>
+<p>I'll do my best to explain what I know but please take it with a grain of salt.</p>
 </blockquote>
 <p>When I say "atomics" I mean atomic variables. In Rust there's a set of data types representing atomic variables, e.g. <code>std::sync::atomic::AtomicU64</code>. They can be modified using atomic operations like <code>fetch_add</code> and <code>compare_and_swap</code> and the change that happens is always atomic.</p>
 <p>Internally they rely on a set of special CPU instructions (or rather a special <code>lock</code> instruction prefix):</p>
@@ -408,10 +422,10 @@ pub fn add_relaxed(n: std::sync::atomic::AtomicU64) -&gt; u64 {
         ret
 </code></pre>
 <p>Of course it's possible to load and store them as well. However, you might've noticed that there's a special argument called "memory ordering" that needs to be passed. Rust follows C++ memory model which is not the only one but I think it's the most popular model as of now.</p>
-<p>The problem with modern CPUs (well, in fact, it's a feature) is that they can re-order instructions if they think that it's OK to do so. As a consequence your code may run faster but it can also produce a race condition.</p>
+<p>The problem with both modern compilers and CPUs (well, in fact, it's a feature) is that they can re-order instructions if they think that it makes the code run faster, but it can also produce a race condition.</p>
 <p>The idea is that for each atomic operation that you perform you need to additionally pass a special enum flag that is one of:</p>
 <h3 id="relaxed"><a class="header" href="#relaxed"><code>relaxed</code></a></h3>
-<p>That's the "weakest" requirement for the CPU. This mode requires no synchronization and allows any kind of re-ordering. It's the fastest type of atomic operations and it's very suitable for things like counters or just reads/writes where order doesn't matter. This is what we are going to use in the next chapter to implement correct atomic counter.</p>
+<p>That's the "weakest" requirement for the CPU. This mode requires no synchronization and allows any kind of re-ordering. It's the fastest type of atomic operation and it's very suitable for things like counters or just reads/writes where order doesn't matter, or when you only care about the final result. This is what we are going to use in the next chapter to implement correct atomic counter.</p>
 <h3 id="acquirerelease"><a class="header" href="#acquirerelease"><code>acquire</code>/<code>release</code></a></h3>
 <p>I'm going to quote C++ documentation here:</p>
 <blockquote>
@@ -447,7 +461,7 @@ int main()
     t1.join(); t2.join();
 }
 </code></pre>
-<p>Here when we call <code>store(release)</code> in <code>producer</code> it's guaranteed that any other threads loads the value using <code>load(acquire)</code> will see the change to the underlying value (a string) together with other changes made by the writing thread (<code>int data</code>).</p>
+<p>Here when we call <code>store(release)</code> in <code>producer</code> it's guaranteed that any other threads that loads the value using <code>load(acquire)</code> will see the change to the underlying value (a string) together with other changes made by the writing thread (<code>int data</code>).</p>
 <p>This synchronization primitive might look unusual to you if you have never seen it before, but the idea is simple: this memory ordering level guarantees that all of your changes made in one thread become visible to other thread in one go.</p>
 <h3 id="seq_cst"><a class="header" href="#seq_cst"><code>seq_cst</code></a></h3>
 <p>Stands for "Sequentially Consistent" ordering.</p>
@@ -809,11 +823,12 @@ MAP.sum(KEYS)
     fn rb_eql(lhs: c_ulong, rhs: c_ulong) -&gt; c_int;
 }
 </code></pre>
-<p>The first one returns a hash of the given as a Ruby number. We don't care about it, any value is fine. The second one calls <code>lhs == rhs</code> using Ruby method dispatch and returns non-zero if the objects are equal. For <code>DashMap</code> we need to implement a few Rust traits to call them properly:</p>
+<p>The first one returns a hash of the given object as a Ruby number (i.e. Ruby <code>Integer</code>, not <code>int</code> from C). We don't care about it, any value is fine. The second one calls <code>lhs == rhs</code> using Ruby method dispatch and returns non-zero if the objects are equal. For <code>DashMap</code> we need to implement a few Rust traits to call them properly:</p>
 <pre><code class="language-rs">// This is our wrapper type that uses Ruby functions for `.hash` and `.eql?`
 #[derive(Debug)]
 struct RubyHashEql(c_ulong);
 
+// Called by `dashmap` to compare objects
 impl PartialEq for RubyHashEql {
     fn eq(&amp;self, other: &amp;Self) -&gt; bool {
         unsafe { rb_eql(self.0, other.0) != 0 }
@@ -821,6 +836,7 @@ impl PartialEq for RubyHashEql {
 }
 impl Eq for RubyHashEql {}
 
+// Called to compute hash
 impl std::hash::Hash for RubyHashEql {
     fn hash&lt;H: std::hash::Hasher&gt;(&amp;self, state: &amp;mut H) {
         let ruby_hash = unsafe { rb_hash(self.0) };
@@ -829,11 +845,11 @@ impl std::hash::Hash for RubyHashEql {
 }
 
 struct ConcurrentHashMap {
-    // And here is the change, so now the keys are hashed and compared using Ruby functions
+    // And here is the change, so now the keys are hashed and compared using Ruby semantics
     map: dashmap::DashMap&lt;RubyHashEql, c_ulong&gt;,
 }
 </code></pre>
-<p>Is it better now?</p>
+<p>And finally it works as expected:</p>
 <pre><code class="language-ruby">Point = Struct.new(:x, :y)
 
 map = CAtomics::ConcurrentHashMap.new
@@ -847,8 +863,8 @@ map.get(Point.new("one-point-two", "seven"))
 <ol>
 <li>something like a connection pool for your database or any kind of external storage service</li>
 <li>maybe a pool of persistent connections for an external service if it has rate limits</li>
-<li>a pool of workers threads</li>
-<li>or maybe even a pool of pre-allocated buffers that are reused for heavy data loading</li>
+<li>a pool of worker threads</li>
+<li>or maybe even a pool of pre-allocated memory buffers that are reused for heavy data loading</li>
 </ol>
 <p>So let's think about the interface first, how about this?</p>
 <pre><code class="language-ruby">size = 5
@@ -869,14 +885,14 @@ end
 <h2 id="another-data-structure-another-rust-dependency"><a class="header" href="#another-data-structure-another-rust-dependency">Another data structure, another Rust dependency</a></h2>
 <p>After all, that was the reason I chose Rust here.</p>
 <p><a href="https://crates.io/crates/crossbeam_channel"><code>crossbeam_channel</code></a> is a Rust library for multi-producer multi-consumer queues, with timeout support. Why do we need it here? Good question.</p>
-<p>We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call <code>.checkout</code> it'll <code>.pop</code> from the queue and return <code>[obj, idx]</code>, and you call <code>.checkin(idx)</code> it'll push it back to the queue. Of course, initially the queue should be filled with all available indexes from <code>0</code> to <code>POOL_SIZE</code>.</p>
+<p>We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call <code>.checkout</code> it'll <code>.pop</code> from an index the queue and return a tuple of<code>[array[idx], idx]</code>, then you do somthing with the object and at thend you call <code>.checkin(idx)</code> to push it back to the queue. Of course, initially the queue should be filled with all available indexes from <code>0</code> to <code>POOL_SIZE</code>.</p>
 <p>Internally it can be visualized as this:</p>
 <p><img src="object_pool.png" alt="object pool" /></p>
 <ul>
 <li>green items are safe for direct usage by multiple threads</li>
 <li>blue items are not safe, but access to them is protected by green items</li>
 </ul>
-<p>Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take it because its index is not in the queue):</p>
+<p>Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take them because their indices are not in the queue):</p>
 <p><img src="object_pool_two_popped.png" alt="object pool 2 popped" /></p>
 <p>And finally this is what happens when the second thread returns the value back to the pool:</p>
 <p><img src="object_pool_one_returned.png" alt="object pool 1 returned" /></p>
@@ -889,7 +905,7 @@ use std::{ffi::c_ulong, time::Duration};
 // This is the pool itself
 pub struct FixedSizeObjectPool {
     // a fixed-size array, as a Vec because we know its size only at runtime
-    // however it never resizes
+    // however, it never resizes
     pool: Vec&lt;c_ulong&gt;,
     // "sending" part of the queue (that we "push" to)
     tx: Sender&lt;usize&gt;,
@@ -899,7 +915,7 @@ pub struct FixedSizeObjectPool {
 }
 
 // We need to return a combination of `idx` and `object` from `.checkout` method,
-// so this struct simply represents it
+// so this struct simply represents this tuple
 #[repr(C)]
 pub struct PooledItem {
     pub idx: usize,
@@ -1041,7 +1057,7 @@ POOL.with { |obj| }
 <li>a queue of background jobs that are executed by worker threads</li>
 </ol>
 <p>First, let's build a simple, I would even say a "naive" version of the queue that is simply wrapped with a <code>Mutex</code>.</p>
-<p>Oh, it must have a fixed maximum size, we don't want to open the door for DDoSing, right?</p>
+<p>Oh, and let's make it have a fixed maximum size. If it's used to route requests in a multi-threaded server we don't want to open the door for DDoSing, right?</p>
 <p>Here's a fixed-size queue that is <strong>not</strong> thread-safe:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -1093,7 +1109,7 @@ impl UnsafeQueue {
 <span class="boring">}</span></code></pre></pre>
 <p>Here we use Rust's built-in type called <code>VecDeque</code> that has <code>push_back</code> and <code>pop_front</code> method, plus it handles:</p>
 <ol>
-<li>the cases when the size of the queue exceeds the specified size (then <code>false</code> is returned from <code>try_push</code>)</li>
+<li>the case when when push to a full queue (then <code>false</code> is returned from <code>try_push</code>)</li>
 <li>when we pop from an empty queue (then <code>None</code> is returned from the <code>pop</code> method)</li>
 </ol>
 <p>Now we wrap it with a <code>Mutex</code>:</p>
@@ -1168,10 +1184,8 @@ pub extern "C" fn queue_with_mutex_try_pop(queue: *mut QueueWithMutex, fallback:
   def pop
     loop do
       value = try_pop(UNDEFINED)
-      if value.nil?
-        return nil
-      elsif value.equal?(UNDEFINED)
-        # continue
+      if value.equal?(UNDEFINED)
+        # queue is empty, keep looping
       else
         return value
       end
@@ -1261,6 +1275,10 @@ end
 <p>And finally we can write a helper to run an individual test method, measure time taken, record an error and track it on some imaginary <code>report</code> object:</p>
 <pre><code class="language-ruby">class Microtest::TestCase
   class &lt;&lt; self
+    def now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+
     def measure
       start = now
       yield
@@ -1299,7 +1317,7 @@ end
     @failed &lt;&lt; [klass, method_name, err]
   end
 
-  # Why do we need this? Because we'll merge reports produced by multiple Ractors.
+  # Why do we need this? Because we'll merge the reports produced by multiple Ractors.
   def merge!(other)
     @passed += other.passed
     @failed += other.failed
@@ -1346,12 +1364,12 @@ module Microtest
           klass.run(method_name, report)
         end
 
-        # at the end just return the report that we've accumulated
+        # at the end send back the report that we've accumulated
         Ractor.yield report
       end
     end
 
-    # push all tests to the queue
+    # back to the main thread. push all tests to the queue
     Microtest::TestCase.subclasses.each do |klass|
       klass.test_methods.each do |method_name|
         QUEUE.push([klass, method_name])
@@ -1371,11 +1389,9 @@ module Microtest
   end
 end
 </code></pre>
-<p>This code is not very different from the one we had to test correctness of queue. One important change here is that <code>nil</code> is used as a special flag that stops the worker that pulls it out of the queue. If we need to support passing <code>nil</code> through the queue we can introduce another unique object called <code>EXIT</code> similar to the <code>UNDEFINED</code> that we used to indicate the absence of the value at the moment.</p>
+<p>This code is not very different from the one we had to test correctness of our queue implementation. One important change here is that <code>nil</code> is used as a special flag that stops the worker from looping. If we need to support passing <code>nil</code> through the queue we can introduce another unique object called <code>EXIT</code> similar to the <code>UNDEFINED</code> that we used to indicate the absence of the value at the moment.</p>
 <p>How can we use this code?</p>
 <pre><code class="language-ruby">require_relative './microtest'
-
-def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
 def heavy_computation(ms)
   finish_at = now + ms / 1000.0
@@ -1447,34 +1463,36 @@ sys     0m0.026s
 <p>SPOILER</p>
 <p>In the next chapter we'll build a more advanced queue that doesn't acquire the Interpreter Lock and with it I get all cores used at 100%.</p>
 <p>If I remove randomness from tests and change each test to take 2 seconds, I get these numbers:</p>
-<p><code>QueueWithMutex</code>:
-real  0m6.171s
+<p><code>QueueWithMutex</code>:</p>
+<pre><code>real  0m6.171s
 user  0m42.128s
-sys   0m0.036s</p>
-<p>vs <code>ToBeDescribedSoonQueue</code>:
-real  0m4.173s
+sys   0m0.036s
+</code></pre>
+<p>vs <code>ToBeDescribedSoonQueue</code>:</p>
+<pre><code>real  0m4.173s
 user  0m42.020s
-sys   0m0.020s</p>
-<p>Which is close to 10x speedup on my 8 cores + 4 threads. There might be a hard parallelism limit that is somehow impacted by GIL but I can't verify it. Note that out Queue is large enough to hold all 20 tests + 12 <code>nil</code>s, and so workers don't starve in this case. Also the tests take long enough to have no contention at all and so no looping-and-sleeping happens internally. It <strong>should</strong> utilize all cores, but for some reason it doesn't.</p>
+sys   0m0.020s
+</code></pre>
+<p>Which is close to 10x speedup on my 8 cores + 4 threads. There might be a hard parallelism limit that is somehow impacted by GIL but I can't verify it. Note that our queue is large enough to hold all 20 tests + 12 <code>nil</code>s, and so workers don't starve in this case. Also the tests take long enough to have no contention at all and so no looping-and-sleeping happens internally. It <strong>should</strong> utilize all cores, but for some reason it doesn't.</p>
 </blockquote>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="a-better-queue"><a class="header" href="#a-better-queue">A Better Queue</a></h1>
 <p>To implement a "better" version of the queue we need to:</p>
 <ol>
-<li>get rid of the loop-until-succeeds logic in Ruby, in theory we can move it to Rust, but then it means that GC will be blocked while we are inside our blocking <code>pop</code> method that loops until it succeeds.</li>
-<li>to avoid it we must call our function with <code>rb_thread_call_without_gvl</code> and on top of that it cannot lock GC</li>
+<li>get rid of the loop-until-succeeds logic in Ruby, in theory we can move it to Rust, but that would block the GC while we are looping in the <code>pop</code> method.</li>
+<li>to avoid it we must call our function with <code>rb_thread_call_without_gvl</code> and on top of that our <code>pop</code> method can't exclusively lock the data</li>
 <li>but it means that we'll have parallel access to our data structure by threads that <code>push/pop</code> and by the thread that runs GC (which is the main thread).</li>
 </ol>
 <p>The latter sounds like something that can't be achieved because it's clearly a race condition. We want to have a data structure that:</p>
 <ol>
 <li>supports parallel non-blocking modification</li>
-<li>AND iteration by other thread in parallel (to mark each item of the queue)</li>
+<li>AND iteration by other thread in parallel (to mark each item in the queue)</li>
 </ol>
 <p>And IF, just IF we make a mistake and don't mark a single object that is still in use then the whole VM crashes.</p>
 <p>Here starts the fun part about lock-free data structures.</p>
 <blockquote>
-<p>Lock-free data structures are about providing a guarantee that at least one thread is able to make a progress at any point in time.</p>
+<p>Lock-free data structures provides a guarantee that at least one thread is able to make a progress at any point in time.</p>
 </blockquote>
-<p>There's also a term "wait-free data structures" that means that <strong>all</strong> threads can make progress and don't block each other, and that every operation requires a constant (potentially large but constant) number of steps to complete. In practice it's a rare beast and from what I know most of the time they are slower than lock-free alternative implementations.</p>
+<p>There's also a term "wait-free data structures" that means that <strong>all</strong> threads can make progress and don't block each other, and that every operation requires a constant (potentially large but constant) number of steps to complete. In practice it's a rare beast and from what I know most of the time they are slower than lock-free alternative implementations (because they require threads to run cooperatively and "help each other").</p>
 <p>A famous example of a lock-free data structure is a spinlock mutex:</p>
 <pre><code class="language-rs">struct Spinlock&lt;T&gt; {
     data: T,
@@ -1507,9 +1525,6 @@ impl&lt;T&gt; Spinlock&lt;T&gt; {
     }
 }
 </code></pre>
-<blockquote>
-<p>Please ignore unsafety of the interface, yes, there should be a concept of a Guard object</p>
-</blockquote>
 <p><code>try_lock</code> method is lock-free. It tries to compare-and-exchange value of <code>in_use</code> from <code>false</code> (not in use) to <code>true</code> (in use by current thread). If it succeeds <code>true</code> is returned.</p>
 <p>To lock an object in a blocking manner we spin and keep trying to lock it. Once it succeeds we know that we own the object until we call <code>unlock</code>.</p>
 <p>Unlocking is done by the thread that owns it, and so it's guaranteed still to be <code>true</code>; no looping is needed. Once we compare-exchange it from <code>true</code> to <code>false</code> we lose ownership and some other thread spinning in parallel can get access now.</p>
@@ -1623,10 +1638,10 @@ impl MpmcQueue {
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<p>Here we have a struct that contains N elements and two atomic indexes. The first index for reading, the second is for writing. Basically it's an atomic version of the <a href="https://en.wikipedia.org/wiki/Circular_buffer">"ring buffer"</a>. When we push we shift "write" index to the right, when we pop we shift "read" index to the right.</p>
-<p>On top that each cell of the queue has a field called <code>sequence</code> that is used to make sure that a <code>push</code> that we are trying to do in a loop happens in sync with bumping a "write" pointer (same for <code>pop</code>-ing).</p>
+<p>Here we have a struct that contains N elements and two atomic indexes. The first index for reading, the second is for writing. Basically it's an atomic version of the <a href="https://en.wikipedia.org/wiki/Circular_buffer">"ring buffer"</a>. When we push we shift "write" index to the right, when we pop we shift "read" index to the right. If any of these pointers overflows we reset it to 0 and start reading/writing from the beginning of the buffer.</p>
+<p>On top of that, each cell of the queue has a field called <code>sequence</code> that is used to make sure that a <code>push</code> that we are trying to do in a loop happens in sync with bumping a "write" pointer (same for <code>pop</code>-ing).</p>
 <p>Additionally, there's an assertion at the beginning of the constructor that only accepts <code>buffer_size</code> that is a power of two. Why is it needed? Well, <code>buffer_mask</code> that is derived from it is the answer.</p>
-<p>Let's say our <code>buffer_size</code> is set to 8 (<code>0b1000</code>), then <code>buffer_mask</code> becomes 7 (<code>0b111</code>). If we use bit-and on a monotonically increasing number with this mask we'll get a sequence of number in 0-7 range that wraps on overflow. You can try it yourself in REPL by running <code>0.upto(50).map { |n| n &amp; 0b111 }</code> - this returns a cycling sequence from 0 to 7.</p>
+<p>Let's say our <code>buffer_size</code> is set to 8 (<code>0b1000</code>), then <code>buffer_mask</code> becomes 7 (<code>0b111</code>). If we use bit-and on a monotonically increasing number with this mask we'll get a sequence of numbers in 0-7 range that wraps on overflow. You can try it yourself in REPL by running <code>0.upto(50).map { |n| n &amp; 0b111 }</code> - this returns a cycling sequence from 0 to 7.</p>
 <p>That's a clever trick to avoid checking for read/write pointer overflows.</p>
 <blockquote>
 <p>Could I write this code from scratch just by myself? Definitely no. Use existing implementations.</p>
@@ -1660,7 +1675,7 @@ impl MpmcQueue {
 <p>There are different solutions to avoid it (like <code>FUTEX_WAIT</code> sycall on Linux) but here we'll use <a href="https://man7.org/linux/man-pages/man7/sem_overview.7.html">POSIX semaphores</a>. I haven't compared it to other solutions, so there's a chance that it's terribly slow. I have an excuse though: semaphores are relatively easy to understand.</p>
 <p>Right now we need 3 functions:</p>
 <ol>
-<li><code>sem_init</code> - initializes a semaphore object, in our case must be called as <code>sem_init(ptr_to_sem_object, 0, initial_value)</code> where 0 means "shared between threads of the current process, but not with other processes" (yes that's also supported but then semaphore must be located in shared memory), the second zero is the default value.</li>
+<li><code>sem_init</code> - initializes a semaphore object, in our case must be called as <code>sem_init(ptr_to_sem_object, 0, initial_value)</code> where 0 means "shared between threads of the current process, but not with other processes" (yes that's also supported but then semaphore must be located in shared memory).</li>
 <li><code>sem_post</code> - increments the value of the semaphore by 1, wakes up threads that are waiting for this semaphore</li>
 <li><code>sem_wait</code> - waits for a semaphore value to be greater than zero and atomically decrements its value. Goes to sleep if the value is zero.</li>
 <li><code>sem_destroy</code> - self-explanatory</li>
@@ -1727,21 +1742,21 @@ impl Drop for Semaphore {
 unsafe impl Send for Semaphore {}
 unsafe impl Sync for Semaphore {}
 <span class="boring">}</span></code></pre></pre>
-<p>Now we can change add two semaphores to our struct:</p>
+<p>Now we can add two semaphores to our struct:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>struct MpmsQueue {
+</span>struct MpmcQueue {
     // ...
 
     // Semaphore for readers, equal to the number of elements that can be pop-ed
     read_sem: Semaphore,
 
-    // Semaphore for writers, equal to the number of elements that can be pop-ed
+    // Semaphore for writers, equal to the number of elements that can be push-ed
     // (i.e. a number of free slots in the queue)
     write_sem: Semaphore,
 }
 
-impl MpmsQueue {
+impl MpmcQueue {
     fn alloc() {
         MpmcQueue {
             // ...
@@ -1802,7 +1817,7 @@ pub fn pop(&amp;self) -&gt; c_ulong {
 <div style="break-before: page; page-break-before: always;"></div><h1 id="marking"><a class="header" href="#marking">Marking</a></h1>
 <p>Here comes the tricky part. We do want to call our <code>push</code> and <code>pop</code> functions using <code>rb_thread_call_without_gvl</code> that doesn't acquire an Interpreter Lock and lets GC run in parallel.</p>
 <p>What if one thread pushes to the queue the moment GC has finished iterating over it? Well, then it's going to be collected and then Ruby VM will crash really soon once we pop this item from the queue and do something with it (that would be an equivalent of "use-after-free" in languages with manual memory management).</p>
-<p>I'm going to go with a non-standard approach here that will probably work with other kinds of containers as well. It's looks similar to what's called "quiescent state tracking" (at least in some sources). Briefly:</p>
+<p>I'm going to go with a non-standard approach here that will probably work with other kinds of containers as well. It looks similar to what's called "quiescent state tracking" (at least in some sources). Briefly:</p>
 <ol>
 <li>every time we try to <code>.pop</code> we register ourselves as a "consumer". It will be an atomic counter that is incemented before the modification of the queue and decremented after.</li>
 <li>before starting to <code>.pop</code> each consumer must make sure that a special atomic boolean flag is not set, and if it's set it must wait, busy-looping is fine here.</li>
@@ -1812,7 +1827,7 @@ pub fn pop(&amp;self) -&gt; c_ulong {
 <li>wait for "consumers" counter to reach 0.</li>
 </ol>
 </li>
-<li>at this point we know that no other threads tries to mutate our container (existing consumers have finished and no new consumers can start because of the boolean flag), so it's safe to iterate it and call <code>mark</code> on each element</li>
+<li>at this point we know that no other threads try to mutate our container (existing consumers have finished and no new consumers can start because of the boolean flag), so it's safe to iterate it and call <code>mark</code> on each element</li>
 <li>finally, we set flag back to <code>false</code> and unlock other threads</li>
 </ol>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1928,8 +1943,9 @@ pub fn pop(&amp;self) -&gt; c_ulong {
     }
 }
 <span class="boring">}</span></code></pre></pre>
+<p>Both take a function as a callback and call it when it's time.</p>
 <blockquote>
-<p>This pattern definitely can be implemented by returning <code>GuardAsGc</code> and <code>GuardAsConsumer</code> objects that do unlocking in the destructors, like it's usually implementation in all languages with <a href="https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization">RAII</a>.</p>
+<p>This pattern definitely can be implemented by returning <code>GuardAsGc</code> and <code>GuardAsConsumer</code> objects that do unlocking in their destructors, like it's usually implementation in all languages with <a href="https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization">RAII</a>.</p>
 </blockquote>
 <p>Now we can change our <code>MpmcQueue</code> to embed and utilize this code:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1954,22 +1970,11 @@ impl MpmcQueue {
 
     pub fn pop(&amp;self) -&gt; c_ulong {
         loop {
-            // Here's the difference, we wrap `try_pop` with the lock
+            // Here's the difference, we wrap `try_pop` with the consumer's lock
             if let Some(data) = self.gc_guard.acquire_as_consumer(|| self.try_pop()) {
                 return data;
             }
             self.read_sem.wait();
-        }
-    }
-
-    // Simple iteration function
-    fn foreach&lt;F&gt;(&amp;self, f: F)
-    where
-        F: Fn(c_ulong),
-    {
-        for item in self.buffer.iter() {
-            let value = item.data.get();
-            f(value);
         }
     }
 
@@ -1988,7 +1993,7 @@ impl MpmcQueue {
 <span class="boring">}</span></code></pre></pre>
 <p>We can even write <a href="https://github.com/iliabylich/ractors-playground/blob/master/rust-atomics/src/bin/mpmc_queue.rs">a relatively simple Rust program</a> to see how it works.</p>
 <ol>
-<li>The code in <code>GcGuard</code> prints with <code>eprintln</code> that writes to non-buffered <code>stderr</code>.</li>
+<li>The code in <code>GcGuard</code> prints with <code>eprintln</code> that writes to non-buffered <code>stderr</code> so the output should be readable.</li>
 <li>The program spawns 10 threads that try to <code>.pop</code> from the queue</li>
 <li>The main thread spins in a loop that
 <ol>
@@ -1998,7 +2003,7 @@ impl MpmcQueue {
 <li>releases a GC lock</li>
 </ol>
 </li>
-<li>At the end we get all values that has been popped and merges them to a single array and then sorts it. In this array each pair of consecutive elements must look like <code>N</code> -&gt; <code>N + 1</code> and the last element must be equal to the last value that we pushed (i.e. it's a series from 1 to <code>last_pushed_value</code>)</li>
+<li>At the end we get all values that have been popped and merges them to a single array and then sorts it. In this array each pair of consecutive elements must look like <code>N</code> -&gt; <code>N + 1</code> and the last element must be equal to the last value that we pushed (i.e. it's a series from 1 to <code>last_pushed_value</code>)</li>
 </ol>
 <p>In other words, that's a simplified emulation of how GC works. Its output however shows us that it does what we planned:</p>
 <pre><code>[ThreadId(9)] popped 509
@@ -2047,7 +2052,7 @@ Unlocking consumers
 <div style="break-before: page; page-break-before: always;"></div><h1 id="writing-a-web-server"><a class="header" href="#writing-a-web-server">Writing a Web Server</a></h1>
 <p>This is our destination point. We'll try to make a server that:</p>
 <ol>
-<li>spawn a Ractor per core</li>
+<li>spawns a Ractor per core</li>
 <li>starts a TCP server loop in the main thread</li>
 <li>uses a shared queue to send incoming requests from the main thread to workers</li>
 <li>parses a request in the worker, does some trivial routing and calls a request handler</li>
@@ -2072,7 +2077,7 @@ class DummyConnection
 end
 
 connections = 1.upto(16).map { |conn_id| DummyConnection.new(conn_id) }
-CONNECTION_POOL = CAtomics::FixedSizeObjectPool.new(16, 1_000) { connections.shift }
+DB_CONNECTION_POOL = CAtomics::FixedSizeObjectPool.new(16, 1_000) { connections.shift }
 </code></pre>
 <ol>
 <li>Queue's capacity is 16</li>
@@ -2130,7 +2135,7 @@ end
     reply(conn, 200, {}, "yes, it's fast")
   in ["GET", /^\/dynamic\/(?&lt;id&gt;\d+)$/]
     id = Regexp.last_match[:id].to_i
-    data = CONNECTION_POOL.with { |conn| conn.read_data(id) }
+    data = DB_CONNECTION_POOL.with { |db| db.read_data(id) }
     reply(conn, 200, {}, data.to_json)
   else
     reply(conn, 404, {}, "Unknown path #{path}")
@@ -2144,16 +2149,16 @@ ensure
 end
 </code></pre>
 <blockquote>
-<p>It doesn't really matter how we read and parse request body, but if you curious feel free to take a look at the <a href="https://github.com/iliabylich/ractors-playground/blob/master/tests/web-server.rb#L30">full example</a>. In short, I'm reading from the socket with <code>read_nonblock</code> until there's nothing to read and then there's a dummy parser that can only handle HTTP 1 text-based format.</p>
-<p>We could re-use an existing library like <code>webrick</code> but I'm not sure if they can be called from non-main Ractor.</p>
+<p>It doesn't really matter how we read and parse request body, but if you are curious feel free to take a look at the <a href="https://github.com/iliabylich/ractors-playground/blob/master/tests/web-server.rb#L30">full example</a>. In short, I'm reading from the socket with <code>read_nonblock</code> until there's nothing to read and then there's a dummy parser that can only handle HTTP 1 text-based format.</p>
+<p>We could re-use an existing library like <code>webrick</code> but I'm not sure if they can be called from non-main Ractors.</p>
 </blockquote>
 <p>This server has 3 endpoints:</p>
 <ol>
 <li><code>/slow</code> - takes 100ms to execute, during all this time it does CPU-only work</li>
 <li><code>/fast</code> - replies immediately with a static payload</li>
-<li><code>/dynamic/:id</code> - "loads" data from our fake database and returns dynamic response</li>
+<li><code>/dynamic/:id</code> - "loads" the data from our fake database and returns dynamic response</li>
 </ol>
-<p>It's absolutely OK it if looks ugly, I made it simple to fit a few space as possible. Things like database connection that we've got from the pool can be easily placed in <code>Ractor.current[:database]</code> to make it globally accessing within request scope (so <code>User.find(&lt;id&gt;)</code> from ActiveRecord can still exist in this world).</p>
+<p>It's absolutely OK it if looks ugly, I made it simple to take as few space as possible. Things like database connection that we've got from the pool can be easily placed in <code>Ractor.current[:database]</code> to make it globally accessible within the scope of request (so <code>User.find(&lt;id&gt;)</code> from ActiveRecord can still exist in this world).</p>
 <p>When we run our script we get the following output:</p>
 <pre><code>$ ruby tests/web-server.rb
 CPU count: 12
@@ -2213,7 +2218,7 @@ Transfer rate:          7.67 [Kbytes/sec] received
 </code></pre>
 <p>and meawhile we get a nice picture in Htop:</p>
 <p><img src="better_queue/./htop.png" alt="htop" /></p>
-<p>Once <code>ab</code> is done the process goes back to an idle state:</p>
+<p>Once <code>ab</code> is done the process goes back to idle:</p>
 <p><img src="better_queue/./htop_idle.png" alt="htop_idle" /></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="conclusion"><a class="header" href="#conclusion">Conclusion</a></h1>
 <ol>

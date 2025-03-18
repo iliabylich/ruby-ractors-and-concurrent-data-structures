@@ -155,7 +155,7 @@
                         <h1 id="marking"><a class="header" href="#marking">Marking</a></h1>
 <p>Here comes the tricky part. We do want to call our <code>push</code> and <code>pop</code> functions using <code>rb_thread_call_without_gvl</code> that doesn't acquire an Interpreter Lock and lets GC run in parallel.</p>
 <p>What if one thread pushes to the queue the moment GC has finished iterating over it? Well, then it's going to be collected and then Ruby VM will crash really soon once we pop this item from the queue and do something with it (that would be an equivalent of "use-after-free" in languages with manual memory management).</p>
-<p>I'm going to go with a non-standard approach here that will probably work with other kinds of containers as well. It's looks similar to what's called "quiescent state tracking" (at least in some sources). Briefly:</p>
+<p>I'm going to go with a non-standard approach here that will probably work with other kinds of containers as well. It looks similar to what's called "quiescent state tracking" (at least in some sources). Briefly:</p>
 <ol>
 <li>every time we try to <code>.pop</code> we register ourselves as a "consumer". It will be an atomic counter that is incemented before the modification of the queue and decremented after.</li>
 <li>before starting to <code>.pop</code> each consumer must make sure that a special atomic boolean flag is not set, and if it's set it must wait, busy-looping is fine here.</li>
@@ -165,7 +165,7 @@
 <li>wait for "consumers" counter to reach 0.</li>
 </ol>
 </li>
-<li>at this point we know that no other threads tries to mutate our container (existing consumers have finished and no new consumers can start because of the boolean flag), so it's safe to iterate it and call <code>mark</code> on each element</li>
+<li>at this point we know that no other threads try to mutate our container (existing consumers have finished and no new consumers can start because of the boolean flag), so it's safe to iterate it and call <code>mark</code> on each element</li>
 <li>finally, we set flag back to <code>false</code> and unlock other threads</li>
 </ol>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -281,8 +281,9 @@
     }
 }
 <span class="boring">}</span></code></pre></pre>
+<p>Both take a function as a callback and call it when it's time.</p>
 <blockquote>
-<p>This pattern definitely can be implemented by returning <code>GuardAsGc</code> and <code>GuardAsConsumer</code> objects that do unlocking in the destructors, like it's usually implementation in all languages with <a href="https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization">RAII</a>.</p>
+<p>This pattern definitely can be implemented by returning <code>GuardAsGc</code> and <code>GuardAsConsumer</code> objects that do unlocking in their destructors, like it's usually implementation in all languages with <a href="https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization">RAII</a>.</p>
 </blockquote>
 <p>Now we can change our <code>MpmcQueue</code> to embed and utilize this code:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -307,22 +308,11 @@ impl MpmcQueue {
 
     pub fn pop(&amp;self) -&gt; c_ulong {
         loop {
-            // Here's the difference, we wrap `try_pop` with the lock
+            // Here's the difference, we wrap `try_pop` with the consumer's lock
             if let Some(data) = self.gc_guard.acquire_as_consumer(|| self.try_pop()) {
                 return data;
             }
             self.read_sem.wait();
-        }
-    }
-
-    // Simple iteration function
-    fn foreach&lt;F&gt;(&amp;self, f: F)
-    where
-        F: Fn(c_ulong),
-    {
-        for item in self.buffer.iter() {
-            let value = item.data.get();
-            f(value);
         }
     }
 
@@ -341,7 +331,7 @@ impl MpmcQueue {
 <span class="boring">}</span></code></pre></pre>
 <p>We can even write <a href="https://github.com/iliabylich/ractors-playground/blob/master/rust-atomics/src/bin/mpmc_queue.rs">a relatively simple Rust program</a> to see how it works.</p>
 <ol>
-<li>The code in <code>GcGuard</code> prints with <code>eprintln</code> that writes to non-buffered <code>stderr</code>.</li>
+<li>The code in <code>GcGuard</code> prints with <code>eprintln</code> that writes to non-buffered <code>stderr</code> so the output should be readable.</li>
 <li>The program spawns 10 threads that try to <code>.pop</code> from the queue</li>
 <li>The main thread spins in a loop that
 <ol>
@@ -351,7 +341,7 @@ impl MpmcQueue {
 <li>releases a GC lock</li>
 </ol>
 </li>
-<li>At the end we get all values that has been popped and merges them to a single array and then sorts it. In this array each pair of consecutive elements must look like <code>N</code> -&gt; <code>N + 1</code> and the last element must be equal to the last value that we pushed (i.e. it's a series from 1 to <code>last_pushed_value</code>)</li>
+<li>At the end we get all values that have been popped and merges them to a single array and then sorts it. In this array each pair of consecutive elements must look like <code>N</code> -&gt; <code>N + 1</code> and the last element must be equal to the last value that we pushed (i.e. it's a series from 1 to <code>last_pushed_value</code>)</li>
 </ol>
 <p>In other words, that's a simplified emulation of how GC works. Its output however shows us that it does what we planned:</p>
 <pre><code>[ThreadId(9)] popped 509

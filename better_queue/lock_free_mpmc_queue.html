@@ -260,10 +260,10 @@ impl MpmcQueue {
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<p>Here we have a struct that contains N elements and two atomic indexes. The first index for reading, the second is for writing. Basically it's an atomic version of the <a href="https://en.wikipedia.org/wiki/Circular_buffer">"ring buffer"</a>. When we push we shift "write" index to the right, when we pop we shift "read" index to the right.</p>
-<p>On top that each cell of the queue has a field called <code>sequence</code> that is used to make sure that a <code>push</code> that we are trying to do in a loop happens in sync with bumping a "write" pointer (same for <code>pop</code>-ing).</p>
+<p>Here we have a struct that contains N elements and two atomic indexes. The first index for reading, the second is for writing. Basically it's an atomic version of the <a href="https://en.wikipedia.org/wiki/Circular_buffer">"ring buffer"</a>. When we push we shift "write" index to the right, when we pop we shift "read" index to the right. If any of these pointers overflows we reset it to 0 and start reading/writing from the beginning of the buffer.</p>
+<p>On top of that, each cell of the queue has a field called <code>sequence</code> that is used to make sure that a <code>push</code> that we are trying to do in a loop happens in sync with bumping a "write" pointer (same for <code>pop</code>-ing).</p>
 <p>Additionally, there's an assertion at the beginning of the constructor that only accepts <code>buffer_size</code> that is a power of two. Why is it needed? Well, <code>buffer_mask</code> that is derived from it is the answer.</p>
-<p>Let's say our <code>buffer_size</code> is set to 8 (<code>0b1000</code>), then <code>buffer_mask</code> becomes 7 (<code>0b111</code>). If we use bit-and on a monotonically increasing number with this mask we'll get a sequence of number in 0-7 range that wraps on overflow. You can try it yourself in REPL by running <code>0.upto(50).map { |n| n &amp; 0b111 }</code> - this returns a cycling sequence from 0 to 7.</p>
+<p>Let's say our <code>buffer_size</code> is set to 8 (<code>0b1000</code>), then <code>buffer_mask</code> becomes 7 (<code>0b111</code>). If we use bit-and on a monotonically increasing number with this mask we'll get a sequence of numbers in 0-7 range that wraps on overflow. You can try it yourself in REPL by running <code>0.upto(50).map { |n| n &amp; 0b111 }</code> - this returns a cycling sequence from 0 to 7.</p>
 <p>That's a clever trick to avoid checking for read/write pointer overflows.</p>
 <blockquote>
 <p>Could I write this code from scratch just by myself? Definitely no. Use existing implementations.</p>

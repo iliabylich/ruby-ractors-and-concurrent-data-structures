@@ -181,7 +181,7 @@
 <p>There are different solutions to avoid it (like <code>FUTEX_WAIT</code> sycall on Linux) but here we'll use <a href="https://man7.org/linux/man-pages/man7/sem_overview.7.html">POSIX semaphores</a>. I haven't compared it to other solutions, so there's a chance that it's terribly slow. I have an excuse though: semaphores are relatively easy to understand.</p>
 <p>Right now we need 3 functions:</p>
 <ol>
-<li><code>sem_init</code> - initializes a semaphore object, in our case must be called as <code>sem_init(ptr_to_sem_object, 0, initial_value)</code> where 0 means "shared between threads of the current process, but not with other processes" (yes that's also supported but then semaphore must be located in shared memory), the second zero is the default value.</li>
+<li><code>sem_init</code> - initializes a semaphore object, in our case must be called as <code>sem_init(ptr_to_sem_object, 0, initial_value)</code> where 0 means "shared between threads of the current process, but not with other processes" (yes that's also supported but then semaphore must be located in shared memory).</li>
 <li><code>sem_post</code> - increments the value of the semaphore by 1, wakes up threads that are waiting for this semaphore</li>
 <li><code>sem_wait</code> - waits for a semaphore value to be greater than zero and atomically decrements its value. Goes to sleep if the value is zero.</li>
 <li><code>sem_destroy</code> - self-explanatory</li>
@@ -248,21 +248,21 @@ impl Drop for Semaphore {
 unsafe impl Send for Semaphore {}
 unsafe impl Sync for Semaphore {}
 <span class="boring">}</span></code></pre></pre>
-<p>Now we can change add two semaphores to our struct:</p>
+<p>Now we can add two semaphores to our struct:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>struct MpmsQueue {
+</span>struct MpmcQueue {
     // ...
 
     // Semaphore for readers, equal to the number of elements that can be pop-ed
     read_sem: Semaphore,
 
-    // Semaphore for writers, equal to the number of elements that can be pop-ed
+    // Semaphore for writers, equal to the number of elements that can be push-ed
     // (i.e. a number of free slots in the queue)
     write_sem: Semaphore,
 }
 
-impl MpmsQueue {
+impl MpmcQueue {
     fn alloc() {
         MpmcQueue {
             // ...

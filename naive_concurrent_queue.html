@@ -160,7 +160,7 @@
 <li>a queue of background jobs that are executed by worker threads</li>
 </ol>
 <p>First, let's build a simple, I would even say a "naive" version of the queue that is simply wrapped with a <code>Mutex</code>.</p>
-<p>Oh, it must have a fixed maximum size, we don't want to open the door for DDoSing, right?</p>
+<p>Oh, and let's make it have a fixed maximum size. If it's used to route requests in a multi-threaded server we don't want to open the door for DDoSing, right?</p>
 <p>Here's a fixed-size queue that is <strong>not</strong> thread-safe:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -212,7 +212,7 @@ impl UnsafeQueue {
 <span class="boring">}</span></code></pre></pre>
 <p>Here we use Rust's built-in type called <code>VecDeque</code> that has <code>push_back</code> and <code>pop_front</code> method, plus it handles:</p>
 <ol>
-<li>the cases when the size of the queue exceeds the specified size (then <code>false</code> is returned from <code>try_push</code>)</li>
+<li>the case when when push to a full queue (then <code>false</code> is returned from <code>try_push</code>)</li>
 <li>when we pop from an empty queue (then <code>None</code> is returned from the <code>pop</code> method)</li>
 </ol>
 <p>Now we wrap it with a <code>Mutex</code>:</p>
@@ -287,10 +287,8 @@ pub extern "C" fn queue_with_mutex_try_pop(queue: *mut QueueWithMutex, fallback:
   def pop
     loop do
       value = try_pop(UNDEFINED)
-      if value.nil?
-        return nil
-      elsif value.equal?(UNDEFINED)
-        # continue
+      if value.equal?(UNDEFINED)
+        # queue is empty, keep looping
       else
         return value
       end

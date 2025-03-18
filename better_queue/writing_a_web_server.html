@@ -155,7 +155,7 @@
                         <h1 id="writing-a-web-server"><a class="header" href="#writing-a-web-server">Writing a Web Server</a></h1>
 <p>This is our destination point. We'll try to make a server that:</p>
 <ol>
-<li>spawn a Ractor per core</li>
+<li>spawns a Ractor per core</li>
 <li>starts a TCP server loop in the main thread</li>
 <li>uses a shared queue to send incoming requests from the main thread to workers</li>
 <li>parses a request in the worker, does some trivial routing and calls a request handler</li>
@@ -180,7 +180,7 @@ class DummyConnection
 end
 
 connections = 1.upto(16).map { |conn_id| DummyConnection.new(conn_id) }
-CONNECTION_POOL = CAtomics::FixedSizeObjectPool.new(16, 1_000) { connections.shift }
+DB_CONNECTION_POOL = CAtomics::FixedSizeObjectPool.new(16, 1_000) { connections.shift }
 </code></pre>
 <ol>
 <li>Queue's capacity is 16</li>
@@ -238,7 +238,7 @@ end
     reply(conn, 200, {}, "yes, it's fast")
   in ["GET", /^\/dynamic\/(?&lt;id&gt;\d+)$/]
     id = Regexp.last_match[:id].to_i
-    data = CONNECTION_POOL.with { |conn| conn.read_data(id) }
+    data = DB_CONNECTION_POOL.with { |db| db.read_data(id) }
     reply(conn, 200, {}, data.to_json)
   else
     reply(conn, 404, {}, "Unknown path #{path}")
@@ -252,16 +252,16 @@ ensure
 end
 </code></pre>
 <blockquote>
-<p>It doesn't really matter how we read and parse request body, but if you curious feel free to take a look at the <a href="https://github.com/iliabylich/ractors-playground/blob/master/tests/web-server.rb#L30">full example</a>. In short, I'm reading from the socket with <code>read_nonblock</code> until there's nothing to read and then there's a dummy parser that can only handle HTTP 1 text-based format.</p>
-<p>We could re-use an existing library like <code>webrick</code> but I'm not sure if they can be called from non-main Ractor.</p>
+<p>It doesn't really matter how we read and parse request body, but if you are curious feel free to take a look at the <a href="https://github.com/iliabylich/ractors-playground/blob/master/tests/web-server.rb#L30">full example</a>. In short, I'm reading from the socket with <code>read_nonblock</code> until there's nothing to read and then there's a dummy parser that can only handle HTTP 1 text-based format.</p>
+<p>We could re-use an existing library like <code>webrick</code> but I'm not sure if they can be called from non-main Ractors.</p>
 </blockquote>
 <p>This server has 3 endpoints:</p>
 <ol>
 <li><code>/slow</code> - takes 100ms to execute, during all this time it does CPU-only work</li>
 <li><code>/fast</code> - replies immediately with a static payload</li>
-<li><code>/dynamic/:id</code> - "loads" data from our fake database and returns dynamic response</li>
+<li><code>/dynamic/:id</code> - "loads" the data from our fake database and returns dynamic response</li>
 </ol>
-<p>It's absolutely OK it if looks ugly, I made it simple to fit a few space as possible. Things like database connection that we've got from the pool can be easily placed in <code>Ractor.current[:database]</code> to make it globally accessing within request scope (so <code>User.find(&lt;id&gt;)</code> from ActiveRecord can still exist in this world).</p>
+<p>It's absolutely OK it if looks ugly, I made it simple to take as few space as possible. Things like database connection that we've got from the pool can be easily placed in <code>Ractor.current[:database]</code> to make it globally accessible within the scope of request (so <code>User.find(&lt;id&gt;)</code> from ActiveRecord can still exist in this world).</p>
 <p>When we run our script we get the following output:</p>
 <pre><code>$ ruby tests/web-server.rb
 CPU count: 12
@@ -321,7 +321,7 @@ Transfer rate:          7.67 [Kbytes/sec] received
 </code></pre>
 <p>and meawhile we get a nice picture in Htop:</p>
 <p><img src="./htop.png" alt="htop" /></p>
-<p>Once <code>ab</code> is done the process goes back to an idle state:</p>
+<p>Once <code>ab</code> is done the process goes back to idle:</p>
 <p><img src="./htop_idle.png" alt="htop_idle" /></p>
 
                     </main>

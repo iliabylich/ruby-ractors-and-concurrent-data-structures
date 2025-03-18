@@ -154,7 +154,9 @@
                     <main>
                         <h1 id="atomics"><a class="header" href="#atomics">Atomics</a></h1>
 <blockquote>
-<p>SPOILER: I'm not an expert in this area and if you are really interested in learning how atomics work better read something else. I'll do my best to explain what I know but please take it with a grain of salt.</p>
+<p>SPOILER: I'm not an expert in this area and if you are really interested in learning how atomics work better read something else.</p>
+<p>If you are comfortable with Rust I would personally recommend <a href="https://marabos.nl/atomics/">"Rust Atomics and Locks" by Mara Bos</a></p>
+<p>I'll do my best to explain what I know but please take it with a grain of salt.</p>
 </blockquote>
 <p>When I say "atomics" I mean atomic variables. In Rust there's a set of data types representing atomic variables, e.g. <code>std::sync::atomic::AtomicU64</code>. They can be modified using atomic operations like <code>fetch_add</code> and <code>compare_and_swap</code> and the change that happens is always atomic.</p>
 <p>Internally they rely on a set of special CPU instructions (or rather a special <code>lock</code> instruction prefix):</p>
@@ -173,10 +175,10 @@ pub fn add_relaxed(n: std::sync::atomic::AtomicU64) -&gt; u64 {
         ret
 </code></pre>
 <p>Of course it's possible to load and store them as well. However, you might've noticed that there's a special argument called "memory ordering" that needs to be passed. Rust follows C++ memory model which is not the only one but I think it's the most popular model as of now.</p>
-<p>The problem with modern CPUs (well, in fact, it's a feature) is that they can re-order instructions if they think that it's OK to do so. As a consequence your code may run faster but it can also produce a race condition.</p>
+<p>The problem with both modern compilers and CPUs (well, in fact, it's a feature) is that they can re-order instructions if they think that it makes the code run faster, but it can also produce a race condition.</p>
 <p>The idea is that for each atomic operation that you perform you need to additionally pass a special enum flag that is one of:</p>
 <h3 id="relaxed"><a class="header" href="#relaxed"><code>relaxed</code></a></h3>
-<p>That's the "weakest" requirement for the CPU. This mode requires no synchronization and allows any kind of re-ordering. It's the fastest type of atomic operations and it's very suitable for things like counters or just reads/writes where order doesn't matter. This is what we are going to use in the next chapter to implement correct atomic counter.</p>
+<p>That's the "weakest" requirement for the CPU. This mode requires no synchronization and allows any kind of re-ordering. It's the fastest type of atomic operation and it's very suitable for things like counters or just reads/writes where order doesn't matter, or when you only care about the final result. This is what we are going to use in the next chapter to implement correct atomic counter.</p>
 <h3 id="acquirerelease"><a class="header" href="#acquirerelease"><code>acquire</code>/<code>release</code></a></h3>
 <p>I'm going to quote C++ documentation here:</p>
 <blockquote>
@@ -212,7 +214,7 @@ int main()
     t1.join(); t2.join();
 }
 </code></pre>
-<p>Here when we call <code>store(release)</code> in <code>producer</code> it's guaranteed that any other threads loads the value using <code>load(acquire)</code> will see the change to the underlying value (a string) together with other changes made by the writing thread (<code>int data</code>).</p>
+<p>Here when we call <code>store(release)</code> in <code>producer</code> it's guaranteed that any other threads that loads the value using <code>load(acquire)</code> will see the change to the underlying value (a string) together with other changes made by the writing thread (<code>int data</code>).</p>
 <p>This synchronization primitive might look unusual to you if you have never seen it before, but the idea is simple: this memory ordering level guarantees that all of your changes made in one thread become visible to other thread in one go.</p>
 <h3 id="seq_cst"><a class="header" href="#seq_cst"><code>seq_cst</code></a></h3>
 <p>Stands for "Sequentially Consistent" ordering.</p>

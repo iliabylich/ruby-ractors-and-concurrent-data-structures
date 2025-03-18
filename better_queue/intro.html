@@ -155,21 +155,21 @@
                         <h1 id="a-better-queue"><a class="header" href="#a-better-queue">A Better Queue</a></h1>
 <p>To implement a "better" version of the queue we need to:</p>
 <ol>
-<li>get rid of the loop-until-succeeds logic in Ruby, in theory we can move it to Rust, but then it means that GC will be blocked while we are inside our blocking <code>pop</code> method that loops until it succeeds.</li>
-<li>to avoid it we must call our function with <code>rb_thread_call_without_gvl</code> and on top of that it cannot lock GC</li>
+<li>get rid of the loop-until-succeeds logic in Ruby, in theory we can move it to Rust, but that would block the GC while we are looping in the <code>pop</code> method.</li>
+<li>to avoid it we must call our function with <code>rb_thread_call_without_gvl</code> and on top of that our <code>pop</code> method can't exclusively lock the data</li>
 <li>but it means that we'll have parallel access to our data structure by threads that <code>push/pop</code> and by the thread that runs GC (which is the main thread).</li>
 </ol>
 <p>The latter sounds like something that can't be achieved because it's clearly a race condition. We want to have a data structure that:</p>
 <ol>
 <li>supports parallel non-blocking modification</li>
-<li>AND iteration by other thread in parallel (to mark each item of the queue)</li>
+<li>AND iteration by other thread in parallel (to mark each item in the queue)</li>
 </ol>
 <p>And IF, just IF we make a mistake and don't mark a single object that is still in use then the whole VM crashes.</p>
 <p>Here starts the fun part about lock-free data structures.</p>
 <blockquote>
-<p>Lock-free data structures are about providing a guarantee that at least one thread is able to make a progress at any point in time.</p>
+<p>Lock-free data structures provides a guarantee that at least one thread is able to make a progress at any point in time.</p>
 </blockquote>
-<p>There's also a term "wait-free data structures" that means that <strong>all</strong> threads can make progress and don't block each other, and that every operation requires a constant (potentially large but constant) number of steps to complete. In practice it's a rare beast and from what I know most of the time they are slower than lock-free alternative implementations.</p>
+<p>There's also a term "wait-free data structures" that means that <strong>all</strong> threads can make progress and don't block each other, and that every operation requires a constant (potentially large but constant) number of steps to complete. In practice it's a rare beast and from what I know most of the time they are slower than lock-free alternative implementations (because they require threads to run cooperatively and "help each other").</p>
 <p>A famous example of a lock-free data structure is a spinlock mutex:</p>
 <pre><code class="language-rs">struct Spinlock&lt;T&gt; {
     data: T,
@@ -202,9 +202,6 @@ impl&lt;T&gt; Spinlock&lt;T&gt; {
     }
 }
 </code></pre>
-<blockquote>
-<p>Please ignore unsafety of the interface, yes, there should be a concept of a Guard object</p>
-</blockquote>
 <p><code>try_lock</code> method is lock-free. It tries to compare-and-exchange value of <code>in_use</code> from <code>false</code> (not in use) to <code>true</code> (in use by current thread). If it succeeds <code>true</code> is returned.</p>
 <p>To lock an object in a blocking manner we spin and keep trying to lock it. Once it succeeds we know that we own the object until we call <code>unlock</code>.</p>
 <p>Unlocking is done by the thread that owns it, and so it's guaranteed still to be <code>true</code>; no looping is needed. Once we compare-exchange it from <code>true</code> to <code>false</code> we lose ownership and some other thread spinning in parallel can get access now.</p>

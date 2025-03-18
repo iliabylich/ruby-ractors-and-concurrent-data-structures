@@ -183,7 +183,7 @@ impl PlainCounter {
 <blockquote>
 <p>By the way, you can't mutate it from multiple threads in Rust too. It simply won't compile.</p>
 </blockquote>
-<p>Then we need some glue code to expose these methods to C.</p>
+<p>Then, we need some glue code to expose these methods to C.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[no_mangle]
@@ -236,7 +236,7 @@ RUBY_FUNC_EXPORTED void Init_c_atomics(void) {
 <ol>
 <li>first, it calls <code>rb_ext_ractor_safe</code> which is <strong>absolutely required</strong> if we want to call functions defined by our C extension from non-main Ractors</li>
 <li>then, it declares (or re-opens if it's already defined) a module called <code>CAtomics</code></li>
-<li>and finally it called <code>init_plain_counter</code> that is defined in a file <code>plain-counter.h</code> see below. We'll have many data structures, so splitting code is a must.</li>
+<li>and finally it calls <code>init_plain_counter</code> that is defined in a file <code>plain-counter.h</code> (see below)</li>
 </ol>
 <pre><code class="language-c">// plain-counter.h
 #include "rust-atomics.h"
@@ -282,7 +282,7 @@ static void init_plain_counter(VALUE rb_mCAtomics) {
 <ol>
 <li>Declare metadata of the native data type that will be attached to instances of our <code>PlainCounter</code> Ruby class
 <ol>
-<li>It has default deallocation logic (because we don't allocate anything on creation)</li>
+<li>It has default deallocation logic that does nothing (because we don't allocate anything on creation)</li>
 <li>It's marked as <code>RUBY_TYPED_FROZEN_SHAREABLE</code>, this is required or otherwise we'll get an error if we call <code>Ractor.make_shareable</code> on it</li>
 </ol>
 </li>
@@ -308,7 +308,7 @@ end
 p counter.read
 # =&gt; 1000
 </code></pre>
-<p>Of course it does. Let's try multi-Ractor mode:</p>
+<p>Of course it works. Let's try multi-Ractor mode:</p>
 <pre><code class="language-ruby">require 'c_atomics'
 
 COUNTER = CAtomics::PlainCounter.new
@@ -323,7 +323,7 @@ p ractors.map(&amp;:take)
 p COUNTER.read
 # =&gt; 2357
 </code></pre>
-<p>That's a race condition, GREAT! Now we understand that it's possible to have objects that are <strong>shareable on the surface but mutable inside</strong>. All we need is to guarantee that internal data structure is synchronized and the key trick here is to use atomic variables and lock-free data structures.</p>
+<p>That's a race condition, GREAT! Now we understand that it's possible to have objects that are <strong>shareable on the surface but mutable inside</strong>. All we need is to guarantee that internal data structure is synchronized and the key trick here is to use mutexes, atomic variables and lock-free data structures.</p>
 <blockquote>
 <p>If you have some experience with Rust and you heard about lock-free data structures it might sound similar to you. Lock-free data structures have the same interface in Rust: they allow mutation through shared references to an object, like this:</p>
 </blockquote>

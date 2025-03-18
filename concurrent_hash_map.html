@@ -269,11 +269,12 @@ MAP.sum(KEYS)
     fn rb_eql(lhs: c_ulong, rhs: c_ulong) -&gt; c_int;
 }
 </code></pre>
-<p>The first one returns a hash of the given as a Ruby number. We don't care about it, any value is fine. The second one calls <code>lhs == rhs</code> using Ruby method dispatch and returns non-zero if the objects are equal. For <code>DashMap</code> we need to implement a few Rust traits to call them properly:</p>
+<p>The first one returns a hash of the given object as a Ruby number (i.e. Ruby <code>Integer</code>, not <code>int</code> from C). We don't care about it, any value is fine. The second one calls <code>lhs == rhs</code> using Ruby method dispatch and returns non-zero if the objects are equal. For <code>DashMap</code> we need to implement a few Rust traits to call them properly:</p>
 <pre><code class="language-rs">// This is our wrapper type that uses Ruby functions for `.hash` and `.eql?`
 #[derive(Debug)]
 struct RubyHashEql(c_ulong);
 
+// Called by `dashmap` to compare objects
 impl PartialEq for RubyHashEql {
     fn eq(&amp;self, other: &amp;Self) -&gt; bool {
         unsafe { rb_eql(self.0, other.0) != 0 }
@@ -281,6 +282,7 @@ impl PartialEq for RubyHashEql {
 }
 impl Eq for RubyHashEql {}
 
+// Called to compute hash
 impl std::hash::Hash for RubyHashEql {
     fn hash&lt;H: std::hash::Hasher&gt;(&amp;self, state: &amp;mut H) {
         let ruby_hash = unsafe { rb_hash(self.0) };
@@ -289,11 +291,11 @@ impl std::hash::Hash for RubyHashEql {
 }
 
 struct ConcurrentHashMap {
-    // And here is the change, so now the keys are hashed and compared using Ruby functions
+    // And here is the change, so now the keys are hashed and compared using Ruby semantics
     map: dashmap::DashMap&lt;RubyHashEql, c_ulong&gt;,
 }
 </code></pre>
-<p>Is it better now?</p>
+<p>And finally it works as expected:</p>
 <pre><code class="language-ruby">Point = Struct.new(:x, :y)
 
 map = CAtomics::ConcurrentHashMap.new

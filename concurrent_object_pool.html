@@ -157,8 +157,8 @@
 <ol>
 <li>something like a connection pool for your database or any kind of external storage service</li>
 <li>maybe a pool of persistent connections for an external service if it has rate limits</li>
-<li>a pool of workers threads</li>
-<li>or maybe even a pool of pre-allocated buffers that are reused for heavy data loading</li>
+<li>a pool of worker threads</li>
+<li>or maybe even a pool of pre-allocated memory buffers that are reused for heavy data loading</li>
 </ol>
 <p>So let's think about the interface first, how about this?</p>
 <pre><code class="language-ruby">size = 5
@@ -179,14 +179,14 @@ end
 <h2 id="another-data-structure-another-rust-dependency"><a class="header" href="#another-data-structure-another-rust-dependency">Another data structure, another Rust dependency</a></h2>
 <p>After all, that was the reason I chose Rust here.</p>
 <p><a href="https://crates.io/crates/crossbeam_channel"><code>crossbeam_channel</code></a> is a Rust library for multi-producer multi-consumer queues, with timeout support. Why do we need it here? Good question.</p>
-<p>We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call <code>.checkout</code> it'll <code>.pop</code> from the queue and return <code>[obj, idx]</code>, and you call <code>.checkin(idx)</code> it'll push it back to the queue. Of course, initially the queue should be filled with all available indexes from <code>0</code> to <code>POOL_SIZE</code>.</p>
+<p>We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call <code>.checkout</code> it'll <code>.pop</code> from an index the queue and return a tuple of<code>[array[idx], idx]</code>, then you do somthing with the object and at thend you call <code>.checkin(idx)</code> to push it back to the queue. Of course, initially the queue should be filled with all available indexes from <code>0</code> to <code>POOL_SIZE</code>.</p>
 <p>Internally it can be visualized as this:</p>
 <p><img src="object_pool.png" alt="object pool" /></p>
 <ul>
 <li>green items are safe for direct usage by multiple threads</li>
 <li>blue items are not safe, but access to them is protected by green items</li>
 </ul>
-<p>Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take it because its index is not in the queue):</p>
+<p>Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take them because their indices are not in the queue):</p>
 <p><img src="object_pool_two_popped.png" alt="object pool 2 popped" /></p>
 <p>And finally this is what happens when the second thread returns the value back to the pool:</p>
 <p><img src="object_pool_one_returned.png" alt="object pool 1 returned" /></p>
@@ -199,7 +199,7 @@ use std::{ffi::c_ulong, time::Duration};
 // This is the pool itself
 pub struct FixedSizeObjectPool {
     // a fixed-size array, as a Vec because we know its size only at runtime
-    // however it never resizes
+    // however, it never resizes
     pool: Vec&lt;c_ulong&gt;,
     // "sending" part of the queue (that we "push" to)
     tx: Sender&lt;usize&gt;,
@@ -209,7 +209,7 @@ pub struct FixedSizeObjectPool {
 }
 
 // We need to return a combination of `idx` and `object` from `.checkout` method,
-// so this struct simply represents it
+// so this struct simply represents this tuple
 #[repr(C)]
 pub struct PooledItem {
     pub idx: usize,
