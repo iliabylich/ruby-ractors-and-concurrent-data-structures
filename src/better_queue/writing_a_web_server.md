@@ -2,7 +2,7 @@
 
 This is our destination point. We'll try to make a server that:
 
-1. spawn a Ractor per core
+1. spawns a Ractor per core
 2. starts a TCP server loop in the main thread
 3. uses a shared queue to send incoming requests from the main thread to workers
 4. parses a request in the worker, does some trivial routing and calls a request handler
@@ -29,7 +29,7 @@ class DummyConnection
 end
 
 connections = 1.upto(16).map { |conn_id| DummyConnection.new(conn_id) }
-CONNECTION_POOL = CAtomics::FixedSizeObjectPool.new(16, 1_000) { connections.shift }
+DB_CONNECTION_POOL = CAtomics::FixedSizeObjectPool.new(16, 1_000) { connections.shift }
 ```
 
 1. Queue's capacity is 16
@@ -100,7 +100,7 @@ def process_request(conn)
     reply(conn, 200, {}, "yes, it's fast")
   in ["GET", /^\/dynamic\/(?<id>\d+)$/]
     id = Regexp.last_match[:id].to_i
-    data = CONNECTION_POOL.with { |conn| conn.read_data(id) }
+    data = DB_CONNECTION_POOL.with { |db| db.read_data(id) }
     reply(conn, 200, {}, data.to_json)
   else
     reply(conn, 404, {}, "Unknown path #{path}")
@@ -114,17 +114,17 @@ ensure
 end
 ```
 
-> It doesn't really matter how we read and parse request body, but if you curious feel free to take a look at the [full example](https://github.com/iliabylich/ractors-playground/blob/master/tests/web-server.rb#L30). In short, I'm reading from the socket with `read_nonblock` until there's nothing to read and then there's a dummy parser that can only handle HTTP 1 text-based format.
+> It doesn't really matter how we read and parse request body, but if you are curious feel free to take a look at the [full example](https://github.com/iliabylich/ractors-playground/blob/master/tests/web-server.rb#L30). In short, I'm reading from the socket with `read_nonblock` until there's nothing to read and then there's a dummy parser that can only handle HTTP 1 text-based format.
 >
-> We could re-use an existing library like `webrick` but I'm not sure if they can be called from non-main Ractor.
+> We could re-use an existing library like `webrick` but I'm not sure if they can be called from non-main Ractors.
 
 This server has 3 endpoints:
 
 1. `/slow` - takes 100ms to execute, during all this time it does CPU-only work
 2. `/fast` - replies immediately with a static payload
-3. `/dynamic/:id` - "loads" data from our fake database and returns dynamic response
+3. `/dynamic/:id` - "loads" the data from our fake database and returns dynamic response
 
-It's absolutely OK it if looks ugly, I made it simple to fit a few space as possible. Things like database connection that we've got from the pool can be easily placed in `Ractor.current[:database]` to make it globally accessing within request scope (so `User.find(<id>)` from ActiveRecord can still exist in this world).
+It's absolutely OK it if looks ugly, I made it simple to take as few space as possible. Things like database connection that we've got from the pool can be easily placed in `Ractor.current[:database]` to make it globally accessible within the scope of request (so `User.find(<id>)` from ActiveRecord can still exist in this world).
 
 When we run our script we get the following output:
 
@@ -204,6 +204,6 @@ and meawhile we get a nice picture in Htop:
 
 ![htop](./htop.png)
 
-Once `ab` is done the process goes back to an idle state:
+Once `ab` is done the process goes back to idle:
 
 ![htop_idle](./htop_idle.png)

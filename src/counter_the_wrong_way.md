@@ -32,7 +32,7 @@ There's no synchronization internally, and so calling `increment` from multiple 
 
 > By the way, you can't mutate it from multiple threads in Rust too. It simply won't compile.
 
-Then we need some glue code to expose these methods to C.
+Then, we need some glue code to expose these methods to C.
 
 ```rust
 #[no_mangle]
@@ -94,7 +94,7 @@ RUBY_FUNC_EXPORTED void Init_c_atomics(void) {
 
 1. first, it calls `rb_ext_ractor_safe` which is **absolutely required** if we want to call functions defined by our C extension from non-main Ractors
 2. then, it declares (or re-opens if it's already defined) a module called `CAtomics`
-3. and finally it called `init_plain_counter` that is defined in a file `plain-counter.h` see below. We'll have many data structures, so splitting code is a must.
+3. and finally it calls `init_plain_counter` that is defined in a file `plain-counter.h` (see below)
 
 ```c
 // plain-counter.h
@@ -141,7 +141,7 @@ static void init_plain_counter(VALUE rb_mCAtomics) {
 Here we:
 
 1. Declare metadata of the native data type that will be attached to instances of our `PlainCounter` Ruby class
-    1. It has default deallocation logic (because we don't allocate anything on creation)
+    1. It has default deallocation logic that does nothing (because we don't allocate anything on creation)
     2. It's marked as `RUBY_TYPED_FROZEN_SHAREABLE`, this is required or otherwise we'll get an error if we call `Ractor.make_shareable` on it
 2. Then there's an allocating function (which basically is what's called when you do `YourClass.allocate`):
     1. It calls `TypedData_Make_Struct0` macro that defines an `obj` variable (the first argument) as an instance of `klass` (second argument) with data of type `plain_counter_t` that has size `PLAIN_COUNTER_SIZE` (the one we generated with `bindgen`) and has metadata `plain_counter_data`. The memory that is allocated and attached to `obj` is stored in the given `counter` argument.
@@ -166,7 +166,7 @@ p counter.read
 # => 1000
 ```
 
-Of course it does. Let's try multi-Ractor mode:
+Of course it works. Let's try multi-Ractor mode:
 
 ```ruby
 require 'c_atomics'
@@ -184,7 +184,7 @@ p COUNTER.read
 # => 2357
 ```
 
-That's a race condition, GREAT! Now we understand that it's possible to have objects that are **shareable on the surface but mutable inside**. All we need is to guarantee that internal data structure is synchronized and the key trick here is to use atomic variables and lock-free data structures.
+That's a race condition, GREAT! Now we understand that it's possible to have objects that are **shareable on the surface but mutable inside**. All we need is to guarantee that internal data structure is synchronized and the key trick here is to use mutexes, atomic variables and lock-free data structures.
 
 > If you have some experience with Rust and you heard about lock-free data structures it might sound similar to you. Lock-free data structures have the same interface in Rust: they allow mutation through shared references to an object, like this:
 

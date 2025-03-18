@@ -8,7 +8,7 @@ A queue is an absolutely must-have structure for concurrent applications:
 
 First, let's build a simple, I would even say a "naive" version of the queue that is simply wrapped with a `Mutex`.
 
-Oh, it must have a fixed maximum size, we don't want to open the door for DDoSing, right?
+Oh, and let's make it have a fixed maximum size. If it's used to route requests in a multi-threaded server we don't want to open the door for DDoSing, right?
 
 Here's a fixed-size queue that is **not** thread-safe:
 
@@ -62,7 +62,7 @@ impl UnsafeQueue {
 
 Here we use Rust's built-in type called `VecDeque` that has `push_back` and `pop_front` method, plus it handles:
 
-1. the cases when the size of the queue exceeds the specified size (then `false` is returned from `try_push`)
+1. the case when when push to a full queue (then `false` is returned from `try_push`)
 2. when we pop from an empty queue (then `None` is returned from the `pop` method)
 
 Now we wrap it with a `Mutex`:
@@ -142,10 +142,8 @@ class QueueWithMutex
   def pop
     loop do
       value = try_pop(UNDEFINED)
-      if value.nil?
-        return nil
-      elsif value.equal?(UNDEFINED)
-        # continue
+      if value.equal?(UNDEFINED)
+        # queue is empty, keep looping
       else
         return value
       end

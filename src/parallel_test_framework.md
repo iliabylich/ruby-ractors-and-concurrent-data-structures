@@ -35,6 +35,10 @@ And finally we can write a helper to run an individual test method, measure time
 ```ruby
 class Microtest::TestCase
   class << self
+    def now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+
     def measure
       start = now
       yield
@@ -75,7 +79,7 @@ class Microtest::Report
     @failed << [klass, method_name, err]
   end
 
-  # Why do we need this? Because we'll merge reports produced by multiple Ractors.
+  # Why do we need this? Because we'll merge the reports produced by multiple Ractors.
   def merge!(other)
     @passed += other.passed
     @failed += other.failed
@@ -125,12 +129,12 @@ module Microtest
           klass.run(method_name, report)
         end
 
-        # at the end just return the report that we've accumulated
+        # at the end send back the report that we've accumulated
         Ractor.yield report
       end
     end
 
-    # push all tests to the queue
+    # back to the main thread. push all tests to the queue
     Microtest::TestCase.subclasses.each do |klass|
       klass.test_methods.each do |method_name|
         QUEUE.push([klass, method_name])
@@ -151,14 +155,12 @@ module Microtest
 end
 ```
 
-This code is not very different from the one we had to test correctness of queue. One important change here is that `nil` is used as a special flag that stops the worker that pulls it out of the queue. If we need to support passing `nil` through the queue we can introduce another unique object called `EXIT` similar to the `UNDEFINED` that we used to indicate the absence of the value at the moment.
+This code is not very different from the one we had to test correctness of our queue implementation. One important change here is that `nil` is used as a special flag that stops the worker from looping. If we need to support passing `nil` through the queue we can introduce another unique object called `EXIT` similar to the `UNDEFINED` that we used to indicate the absence of the value at the moment.
 
 How can we use this code?
 
 ```ruby
 require_relative './microtest'
-
-def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
 def heavy_computation(ms)
   finish_at = now + ms / 1000.0
@@ -238,13 +240,17 @@ So as you can see it took only 5 seconds to run what would take 31 seconds in si
 > If I remove randomness from tests and change each test to take 2 seconds, I get these numbers:
 >
 > `QueueWithMutex`:
+> ```
 > real  0m6.171s
 > user  0m42.128s
 > sys   0m0.036s
+> ```
 >
 > vs `ToBeDescribedSoonQueue`:
+> ```
 > real  0m4.173s
 > user  0m42.020s
 > sys   0m0.020s
+> ```
 >
-> Which is close to 10x speedup on my 8 cores + 4 threads. There might be a hard parallelism limit that is somehow impacted by GIL but I can't verify it. Note that out Queue is large enough to hold all 20 tests + 12 `nil`s, and so workers don't starve in this case. Also the tests take long enough to have no contention at all and so no looping-and-sleeping happens internally. It **should** utilize all cores, but for some reason it doesn't.
+> Which is close to 10x speedup on my 8 cores + 4 threads. There might be a hard parallelism limit that is somehow impacted by GIL but I can't verify it. Note that our queue is large enough to hold all 20 tests + 12 `nil`s, and so workers don't starve in this case. Also the tests take long enough to have no contention at all and so no looping-and-sleeping happens internally. It **should** utilize all cores, but for some reason it doesn't.

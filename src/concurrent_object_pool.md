@@ -4,8 +4,8 @@ That's a pretty common pattern in multi-threaded apps in case you need:
 
 1. something like a connection pool for your database or any kind of external storage service
 2. maybe a pool of persistent connections for an external service if it has rate limits
-3. a pool of workers threads
-4. or maybe even a pool of pre-allocated buffers that are reused for heavy data loading
+3. a pool of worker threads
+4. or maybe even a pool of pre-allocated memory buffers that are reused for heavy data loading
 
 So let's think about the interface first, how about this?
 
@@ -31,7 +31,7 @@ After all, that was the reason I chose Rust here.
 
 [`crossbeam_channel`](https://crates.io/crates/crossbeam_channel) is a Rust library for multi-producer multi-consumer queues, with timeout support. Why do we need it here? Good question.
 
-We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call `.checkout` it'll `.pop` from the queue and return `[obj, idx]`, and you call `.checkin(idx)` it'll push it back to the queue. Of course, initially the queue should be filled with all available indexes from `0` to `POOL_SIZE`.
+We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call `.checkout` it'll `.pop` from an index the queue and return a tuple of`[array[idx], idx]`, then you do somthing with the object and at thend you call `.checkin(idx)` to push it back to the queue. Of course, initially the queue should be filled with all available indexes from `0` to `POOL_SIZE`.
 
 Internally it can be visualized as this:
 
@@ -40,7 +40,7 @@ Internally it can be visualized as this:
 + green items are safe for direct usage by multiple threads
 + blue items are not safe, but access to them is protected by green items
 
-Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take it because its index is not in the queue):
+Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take them because their indices are not in the queue):
 
 ![object pool 2 popped](object_pool_two_popped.png)
 
@@ -57,7 +57,7 @@ use std::{ffi::c_ulong, time::Duration};
 // This is the pool itself
 pub struct FixedSizeObjectPool {
     // a fixed-size array, as a Vec because we know its size only at runtime
-    // however it never resizes
+    // however, it never resizes
     pool: Vec<c_ulong>,
     // "sending" part of the queue (that we "push" to)
     tx: Sender<usize>,
@@ -67,7 +67,7 @@ pub struct FixedSizeObjectPool {
 }
 
 // We need to return a combination of `idx` and `object` from `.checkout` method,
-// so this struct simply represents it
+// so this struct simply represents this tuple
 #[repr(C)]
 pub struct PooledItem {
     pub idx: usize,

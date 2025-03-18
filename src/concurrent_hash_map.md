@@ -140,13 +140,14 @@ unsafe extern "C" {
 }
 ```
 
-The first one returns a hash of the given as a Ruby number. We don't care about it, any value is fine. The second one calls `lhs == rhs` using Ruby method dispatch and returns non-zero if the objects are equal. For `DashMap` we need to implement a few Rust traits to call them properly:
+The first one returns a hash of the given object as a Ruby number (i.e. Ruby `Integer`, not `int` from C). We don't care about it, any value is fine. The second one calls `lhs == rhs` using Ruby method dispatch and returns non-zero if the objects are equal. For `DashMap` we need to implement a few Rust traits to call them properly:
 
 ```rs
 // This is our wrapper type that uses Ruby functions for `.hash` and `.eql?`
 #[derive(Debug)]
 struct RubyHashEql(c_ulong);
 
+// Called by `dashmap` to compare objects
 impl PartialEq for RubyHashEql {
     fn eq(&self, other: &Self) -> bool {
         unsafe { rb_eql(self.0, other.0) != 0 }
@@ -154,6 +155,7 @@ impl PartialEq for RubyHashEql {
 }
 impl Eq for RubyHashEql {}
 
+// Called to compute hash
 impl std::hash::Hash for RubyHashEql {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let ruby_hash = unsafe { rb_hash(self.0) };
@@ -162,12 +164,12 @@ impl std::hash::Hash for RubyHashEql {
 }
 
 struct ConcurrentHashMap {
-    // And here is the change, so now the keys are hashed and compared using Ruby functions
+    // And here is the change, so now the keys are hashed and compared using Ruby semantics
     map: dashmap::DashMap<RubyHashEql, c_ulong>,
 }
 ```
 
-Is it better now?
+And finally it works as expected:
 
 ```ruby
 Point = Struct.new(:x, :y)

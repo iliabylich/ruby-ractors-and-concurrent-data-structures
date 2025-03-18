@@ -109,13 +109,13 @@ impl MpmcQueue {
 }
 ```
 
-Here we have a struct that contains N elements and two atomic indexes. The first index for reading, the second is for writing. Basically it's an atomic version of the ["ring buffer"](https://en.wikipedia.org/wiki/Circular_buffer). When we push we shift "write" index to the right, when we pop we shift "read" index to the right.
+Here we have a struct that contains N elements and two atomic indexes. The first index for reading, the second is for writing. Basically it's an atomic version of the ["ring buffer"](https://en.wikipedia.org/wiki/Circular_buffer). When we push we shift "write" index to the right, when we pop we shift "read" index to the right. If any of these pointers overflows we reset it to 0 and start reading/writing from the beginning of the buffer.
 
-On top that each cell of the queue has a field called `sequence` that is used to make sure that a `push` that we are trying to do in a loop happens in sync with bumping a "write" pointer (same for `pop`-ing).
+On top of that, each cell of the queue has a field called `sequence` that is used to make sure that a `push` that we are trying to do in a loop happens in sync with bumping a "write" pointer (same for `pop`-ing).
 
 Additionally, there's an assertion at the beginning of the constructor that only accepts `buffer_size` that is a power of two. Why is it needed? Well, `buffer_mask` that is derived from it is the answer.
 
-Let's say our `buffer_size` is set to 8 (`0b1000`), then `buffer_mask` becomes 7 (`0b111`). If we use bit-and on a monotonically increasing number with this mask we'll get a sequence of number in 0-7 range that wraps on overflow. You can try it yourself in REPL by running `0.upto(50).map { |n| n & 0b111 }` - this returns a cycling sequence from 0 to 7.
+Let's say our `buffer_size` is set to 8 (`0b1000`), then `buffer_mask` becomes 7 (`0b111`). If we use bit-and on a monotonically increasing number with this mask we'll get a sequence of numbers in 0-7 range that wraps on overflow. You can try it yourself in REPL by running `0.upto(50).map { |n| n & 0b111 }` - this returns a cycling sequence from 0 to 7.
 
 That's a clever trick to avoid checking for read/write pointer overflows.
 

@@ -2,22 +2,22 @@
 
 To implement a "better" version of the queue we need to:
 
-1. get rid of the loop-until-succeeds logic in Ruby, in theory we can move it to Rust, but then it means that GC will be blocked while we are inside our blocking `pop` method that loops until it succeeds.
-2. to avoid it we must call our function with `rb_thread_call_without_gvl` and on top of that it cannot lock GC
+1. get rid of the loop-until-succeeds logic in Ruby, in theory we can move it to Rust, but that would block the GC while we are looping in the `pop` method.
+2. to avoid it we must call our function with `rb_thread_call_without_gvl` and on top of that our `pop` method can't exclusively lock the data
 3. but it means that we'll have parallel access to our data structure by threads that `push/pop` and by the thread that runs GC (which is the main thread).
 
 The latter sounds like something that can't be achieved because it's clearly a race condition. We want to have a data structure that:
 
 1. supports parallel non-blocking modification
-2. AND iteration by other thread in parallel (to mark each item of the queue)
+2. AND iteration by other thread in parallel (to mark each item in the queue)
 
 And IF, just IF we make a mistake and don't mark a single object that is still in use then the whole VM crashes.
 
 Here starts the fun part about lock-free data structures.
 
-> Lock-free data structures are about providing a guarantee that at least one thread is able to make a progress at any point in time.
+> Lock-free data structures provides a guarantee that at least one thread is able to make a progress at any point in time.
 
-There's also a term "wait-free data structures" that means that **all** threads can make progress and don't block each other, and that every operation requires a constant (potentially large but constant) number of steps to complete. In practice it's a rare beast and from what I know most of the time they are slower than lock-free alternative implementations.
+There's also a term "wait-free data structures" that means that **all** threads can make progress and don't block each other, and that every operation requires a constant (potentially large but constant) number of steps to complete. In practice it's a rare beast and from what I know most of the time they are slower than lock-free alternative implementations (because they require threads to run cooperatively and "help each other").
 
 A famous example of a lock-free data structure is a spinlock mutex:
 
@@ -53,8 +53,6 @@ impl<T> Spinlock<T> {
     }
 }
 ```
-
-> Please ignore unsafety of the interface, yes, there should be a concept of a Guard object
 
 `try_lock` method is lock-free. It tries to compare-and-exchange value of `in_use` from `false` (not in use) to `true` (in use by current thread). If it succeeds `true` is returned.
 

@@ -30,7 +30,7 @@ There are different solutions to avoid it (like `FUTEX_WAIT` sycall on Linux) bu
 
 Right now we need 3 functions:
 
-1. `sem_init` - initializes a semaphore object, in our case must be called as `sem_init(ptr_to_sem_object, 0, initial_value)` where 0 means "shared between threads of the current process, but not with other processes" (yes that's also supported but then semaphore must be located in shared memory), the second zero is the default value.
+1. `sem_init` - initializes a semaphore object, in our case must be called as `sem_init(ptr_to_sem_object, 0, initial_value)` where 0 means "shared between threads of the current process, but not with other processes" (yes that's also supported but then semaphore must be located in shared memory).
 2. `sem_post` - increments the value of the semaphore by 1, wakes up threads that are waiting for this semaphore
 3. `sem_wait` - waits for a semaphore value to be greater than zero and atomically decrements its value. Goes to sleep if the value is zero.
 4. `sem_destroy` - self-explanatory
@@ -98,21 +98,21 @@ unsafe impl Send for Semaphore {}
 unsafe impl Sync for Semaphore {}
 ```
 
-Now we can change add two semaphores to our struct:
+Now we can add two semaphores to our struct:
 
 ```rust
-struct MpmsQueue {
+struct MpmcQueue {
     // ...
 
     // Semaphore for readers, equal to the number of elements that can be pop-ed
     read_sem: Semaphore,
 
-    // Semaphore for writers, equal to the number of elements that can be pop-ed
+    // Semaphore for writers, equal to the number of elements that can be push-ed
     // (i.e. a number of free slots in the queue)
     write_sem: Semaphore,
 }
 
-impl MpmsQueue {
+impl MpmcQueue {
     fn alloc() {
         MpmcQueue {
             // ...

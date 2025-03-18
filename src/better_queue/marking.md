@@ -4,14 +4,14 @@ Here comes the tricky part. We do want to call our `push` and `pop` functions us
 
 What if one thread pushes to the queue the moment GC has finished iterating over it? Well, then it's going to be collected and then Ruby VM will crash really soon once we pop this item from the queue and do something with it (that would be an equivalent of "use-after-free" in languages with manual memory management).
 
-I'm going to go with a non-standard approach here that will probably work with other kinds of containers as well. It's looks similar to what's called "quiescent state tracking" (at least in some sources). Briefly:
+I'm going to go with a non-standard approach here that will probably work with other kinds of containers as well. It looks similar to what's called "quiescent state tracking" (at least in some sources). Briefly:
 
 1. every time we try to `.pop` we register ourselves as a "consumer". It will be an atomic counter that is incemented before the modification of the queue and decremented after.
 2. before starting to `.pop` each consumer must make sure that a special atomic boolean flag is not set, and if it's set it must wait, busy-looping is fine here.
 3. when marking starts we
     1. enable this flag in order to put other consumers (that are about to start) on "pause"
     2. wait for "consumers" counter to reach 0.
-4. at this point we know that no other threads tries to mutate our container (existing consumers have finished and no new consumers can start because of the boolean flag), so it's safe to iterate it and call `mark` on each element
+4. at this point we know that no other threads try to mutate our container (existing consumers have finished and no new consumers can start because of the boolean flag), so it's safe to iterate it and call `mark` on each element
 5. finally, we set flag back to `false` and unlock other threads
 
 ```rust
@@ -130,7 +130,9 @@ impl GcGuard {
 }
 ```
 
-> This pattern definitely can be implemented by returning `GuardAsGc` and `GuardAsConsumer` objects that do unlocking in the destructors, like it's usually implementation in all languages with [RAII](https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization).
+Both take a function as a callback and call it when it's time.
+
+> This pattern definitely can be implemented by returning `GuardAsGc` and `GuardAsConsumer` objects that do unlocking in their destructors, like it's usually implementation in all languages with [RAII](https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization).
 
 Now we can change our `MpmcQueue` to embed and utilize this code:
 
@@ -155,22 +157,11 @@ impl MpmcQueue {
 
     pub fn pop(&self) -> c_ulong {
         loop {
-            // Here's the difference, we wrap `try_pop` with the lock
+            // Here's the difference, we wrap `try_pop` with the consumer's lock
             if let Some(data) = self.gc_guard.acquire_as_consumer(|| self.try_pop()) {
                 return data;
             }
             self.read_sem.wait();
-        }
-    }
-
-    // Simple iteration function
-    fn foreach<F>(&self, f: F)
-    where
-        F: Fn(c_ulong),
-    {
-        for item in self.buffer.iter() {
-            let value = item.data.get();
-            f(value);
         }
     }
 
@@ -190,14 +181,14 @@ impl MpmcQueue {
 
 We can even write [a relatively simple Rust program](https://github.com/iliabylich/ractors-playground/blob/master/rust-atomics/src/bin/mpmc_queue.rs) to see how it works.
 
-1. The code in `GcGuard` prints with `eprintln` that writes to non-buffered `stderr`.
+1. The code in `GcGuard` prints with `eprintln` that writes to non-buffered `stderr` so the output should be readable.
 2. The program spawns 10 threads that try to `.pop` from the queue
 3. The main thread spins in a loop that
     1. pushes monotonically increasing numbers to the queue for 1 second
     2. acquires a GC lock
     3. sleeps for 1 second
     4. releases a GC lock
-4. At the end we get all values that has been popped and merges them to a single array and then sorts it. In this array each pair of consecutive elements must look like `N` -> `N + 1` and the last element must be equal to the last value that we pushed (i.e. it's a series from 1 to `last_pushed_value`)
+4. At the end we get all values that have been popped and merges them to a single array and then sorts it. In this array each pair of consecutive elements must look like `N` -> `N + 1` and the last element must be equal to the last value that we pushed (i.e. it's a series from 1 to `last_pushed_value`)
 
 In other words, that's a simplified emulation of how GC works. Its output however shows us that it does what we planned:
 

@@ -1,6 +1,10 @@
 # Atomics
 
-> SPOILER: I'm not an expert in this area and if you are really interested in learning how atomics work better read something else. I'll do my best to explain what I know but please take it with a grain of salt.
+> SPOILER: I'm not an expert in this area and if you are really interested in learning how atomics work better read something else.
+>
+> If you are comfortable with Rust I would personally recommend ["Rust Atomics and Locks" by Mara Bos](https://marabos.nl/atomics/)
+>
+> I'll do my best to explain what I know but please take it with a grain of salt.
 
 When I say "atomics" I mean atomic variables. In Rust there's a set of data types representing atomic variables, e.g. `std::sync::atomic::AtomicU64`. They can be modified using atomic operations like `fetch_add` and `compare_and_swap` and the change that happens is always atomic.
 
@@ -25,13 +29,13 @@ add_relaxed:
 
 Of course it's possible to load and store them as well. However, you might've noticed that there's a special argument called "memory ordering" that needs to be passed. Rust follows C++ memory model which is not the only one but I think it's the most popular model as of now.
 
-The problem with modern CPUs (well, in fact, it's a feature) is that they can re-order instructions if they think that it's OK to do so. As a consequence your code may run faster but it can also produce a race condition.
+The problem with both modern compilers and CPUs (well, in fact, it's a feature) is that they can re-order instructions if they think that it makes the code run faster, but it can also produce a race condition.
 
 The idea is that for each atomic operation that you perform you need to additionally pass a special enum flag that is one of:
 
 ### `relaxed`
 
-That's the "weakest" requirement for the CPU. This mode requires no synchronization and allows any kind of re-ordering. It's the fastest type of atomic operations and it's very suitable for things like counters or just reads/writes where order doesn't matter. This is what we are going to use in the next chapter to implement correct atomic counter.
+That's the "weakest" requirement for the CPU. This mode requires no synchronization and allows any kind of re-ordering. It's the fastest type of atomic operation and it's very suitable for things like counters or just reads/writes where order doesn't matter, or when you only care about the final result. This is what we are going to use in the next chapter to implement correct atomic counter.
 
 ### `acquire`/`release`
 
@@ -71,7 +75,7 @@ int main()
 }
 ```
 
-Here when we call `store(release)` in `producer` it's guaranteed that any other threads loads the value using `load(acquire)` will see the change to the underlying value (a string) together with other changes made by the writing thread (`int data`).
+Here when we call `store(release)` in `producer` it's guaranteed that any other threads that loads the value using `load(acquire)` will see the change to the underlying value (a string) together with other changes made by the writing thread (`int data`).
 
 This synchronization primitive might look unusual to you if you have never seen it before, but the idea is simple: this memory ordering level guarantees that all of your changes made in one thread become visible to other thread in one go.
 
