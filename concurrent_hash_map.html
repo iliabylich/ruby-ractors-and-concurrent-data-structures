@@ -1,0 +1,356 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Concurrent HashMap - Ruby, Ractors, and Concurrent Data Structures</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Ruby, Ractors, and Concurrent Data Structures</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="concurrent-hashmap"><a class="header" href="#concurrent-hashmap">Concurrent HashMap</a></h1>
+<p>We are already using Rust at this point, so can we just take a popular Rust package that implements it? Of course, I'm going to use <a href="https://crates.io/crates/dashmap"><code>dashmap</code></a>. Internally it locks individual buckets (or shards if you prefer) when we access certain parts of the hashmap.</p>
+<pre><code class="language-rs">use std::ffi::c_ulong;
+
+struct ConcurrentHashMap {
+    map: dashmap::DashMap&lt;c_ulong, c_ulong&gt;,
+}
+
+impl ConcurrentHashMap {
+    // Exposed as `ConcurrentHashMap.new` in Ruby
+    fn new() -&gt; Self {
+        Self {
+            map: dashmap::DashMap::new(),
+        }
+    }
+
+    // Exposed as `ConcurrentHashMap#get` in Ruby
+    fn get(&amp;self, key: c_ulong) -&gt; Option&lt;c_ulong&gt; {
+        self.map.get(&amp;key).map(|v| *v)
+    }
+
+    // Exposed as `ConcurrentHashMap#set` in Ruby
+    fn set(&amp;self, key: c_ulong, value: c_ulong) {
+        self.map.insert(key, value);
+    }
+
+    // Exposed as `ConcurrentHashMap#clear` in Ruby
+    fn clear(&amp;self) {
+        self.map.clear()
+    }
+
+    // Exposed as `ConcurrentHashMap#fetch_and_modify` in Ruby
+    fn fetch_and_modify(&amp;self, key: c_ulong, f: extern "C" fn(c_ulong) -&gt; c_ulong) {
+        self.map.alter(&amp;key, |_, v| f(v));
+    }
+
+    // Callback for marking an object
+    // Exposed as `concurrent_hash_map_mark` in C
+    fn mark(&amp;self, f: extern "C" fn(c_ulong)) {
+        for pair in self.map.iter() {
+            f(*pair.key());
+            f(*pair.value());
+        }
+    }
+}
+</code></pre>
+<p><code>mark</code> function is used as <code>.dmark</code> field in our native type configuration:</p>
+<pre><code class="language-c">void rb_concurrent_hash_map_mark(void *ptr) {
+  concurrent_hash_map_t *hashmap = ptr;
+  concurrent_hash_map_mark(hashmap, rb_gc_mark);
+}
+
+const rb_data_type_t concurrent_hash_map_data = {
+    .function = {
+        .dmark = rb_concurrent_hash_map_mark,
+        // ...
+    },
+    // ...
+};
+</code></pre>
+<p>The trick for <code>fetch_and_modify</code> is to pass <code>rb_yield</code> function that calls block of the current scope with a given value and returns whatever the block returns:</p>
+<pre><code class="language-c">VALUE rb_concurrent_hash_map_fetch_and_modify(VALUE self, VALUE key) {
+  rb_need_block();
+  concurrent_hash_map_t *hashmap;
+  TypedData_Get_Struct(self, concurrent_hash_map_t, &amp;concurrent_hash_map_data, hashmap);
+  concurrent_hash_map_fetch_and_modify(hashmap, key, rb_yield);
+  return Qnil;
+}
+</code></pre>
+<p>Then we can add a few helper functions in Ruby:</p>
+<pre><code class="language-ruby">class CAtomics::ConcurrentHashMap
+  def self.with_keys(known_keys)
+    map = new
+    known_keys.each { |key| map.set(key, 0) }
+    map
+  end
+
+  def increment_random_value(known_keys)
+    fetch_and_modify(known_keys.sample) { |v| v + 1 }
+  end
+
+  def sum(known_keys)
+    known_keys.map { |k| get(k) }.sum
+  end
+end
+</code></pre>
+<p>It's definitely not the best interface, but it works for testing.</p>
+<pre><code class="language-ruby">KEYS = 1.upto(5).map { |i| "key-#{i}" }
+# =&gt; ["key-1", "key-2", "key-3", "key-4", "key-5"]
+Ractor.make_shareable(KEYS)
+
+MAP = CAtomics::ConcurrentHashMap.with_keys(KEYS)
+
+ractors = 5.times.map do
+  Ractor.new do
+    1_000.times { MAP.increment(KEYS.sample) }
+    Ractor.yield :completed
+  end
+end
+p ractors.map(&amp;:take)
+# =&gt; [:completed, :completed, :completed, :completed, :completed]
+
+MAP.sum(KEYS)
+# =&gt; 5000
+</code></pre>
+<p>Wait, why do the values increment correctly? Shouldn't the values inside the hashmap be atomic as well? No, this is actually fine, the code is correct. <code>DashMap</code> locks individual parts of our hashmap every time we call <code>fetch_and_modify</code> and so no threads can update the same key/value pair in parallel.</p>
+<p>There are two problems with our API though</p>
+<h2 id="its-unsafe"><a class="header" href="#its-unsafe">it's unsafe</a></h2>
+<p>anyone can get a reference to any object from <code>.get</code> or keep what they pass to <code>.set</code> for future use. I see no solutions other than keeping it private with a HUGE note saying "this is actually internal, WE know how to use it, you don't" or simply not introducing such API at all.</p>
+<h2 id="does-it-work-with-non-static-ruby-values"><a class="header" href="#does-it-work-with-non-static-ruby-values">does it work with non-static Ruby values?</a></h2>
+<p>I think it doesn't respect Ruby's <code>.hash</code> and <code>.eql?</code> methods and works only if you pass the same object again (one of the frozen static <code>KEYS</code>), so in some sense it works as if we called <code>compare_by_identity</code> on it.</p>
+<p>Let's fix it! First, there are two C functions that we need to call from our C code:</p>
+<pre><code class="language-c">unsafe extern "C" {
+    fn rb_hash(obj: c_ulong) -&gt; c_ulong;
+    fn rb_eql(lhs: c_ulong, rhs: c_ulong) -&gt; c_int;
+}
+</code></pre>
+<p>The first one returns a hash of the given as a Ruby number. We don't care about it, any value is fine. The second one calls <code>lhs == rhs</code> using Ruby method dispatch and returns non-zero if the objects are equal. For <code>DashMap</code> we need to implement a few Rust traits to call them properly:</p>
+<pre><code class="language-rs">// This is our wrapper type that uses Ruby functions for `.hash` and `.eql?`
+#[derive(Debug)]
+struct RubyHashEql(c_ulong);
+
+impl PartialEq for RubyHashEql {
+    fn eq(&amp;self, other: &amp;Self) -&gt; bool {
+        unsafe { rb_eql(self.0, other.0) != 0 }
+    }
+}
+impl Eq for RubyHashEql {}
+
+impl std::hash::Hash for RubyHashEql {
+    fn hash&lt;H: std::hash::Hasher&gt;(&amp;self, state: &amp;mut H) {
+        let ruby_hash = unsafe { rb_hash(self.0) };
+        ruby_hash.hash(state);
+    }
+}
+
+struct ConcurrentHashMap {
+    // And here is the change, so now the keys are hashed and compared using Ruby functions
+    map: dashmap::DashMap&lt;RubyHashEql, c_ulong&gt;,
+}
+</code></pre>
+<p>Is it better now?</p>
+<pre><code class="language-ruby">Point = Struct.new(:x, :y)
+
+map = CAtomics::ConcurrentHashMap.new
+
+map.set(Point.new("one-point-two", "seven"), "BAR")
+map.get(Point.new("one-point-two", "seven"))
+# =&gt; "BAR"
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="containers_ractors_and_gc.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="concurrent_object_pool.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="containers_ractors_and_gc.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="concurrent_object_pool.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>

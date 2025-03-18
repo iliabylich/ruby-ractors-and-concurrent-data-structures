@@ -1,0 +1,397 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Concurrent ObjectPool - Ruby, Ractors, and Concurrent Data Structures</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Ruby, Ractors, and Concurrent Data Structures</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="concurrent-objectpool"><a class="header" href="#concurrent-objectpool">Concurrent ObjectPool</a></h1>
+<p>That's a pretty common pattern in multi-threaded apps in case you need:</p>
+<ol>
+<li>something like a connection pool for your database or any kind of external storage service</li>
+<li>maybe a pool of persistent connections for an external service if it has rate limits</li>
+<li>a pool of workers threads</li>
+<li>or maybe even a pool of pre-allocated buffers that are reused for heavy data loading</li>
+</ol>
+<p>So let's think about the interface first, how about this?</p>
+<pre><code class="language-ruby">size = 5
+timeout_in_ms = 3_000
+def make_object
+  # connect to the DB and return connection
+end
+pool = OurObjectPool.new(size, timeout_in_ms) { make_object }
+
+pool.with do |connection|
+  # do something with `connection`
+end
+# the object is automatically returned to the pool once the block exits
+</code></pre>
+<blockquote>
+<p>Having a timeout is a must for a database connection pool in real-world apps, but if it's a pool of workers in some cases it doesn't make sense, so I think it can be made optional so that if it's not passed then no timeout error should occur. I'm going with a non-flexible approach here, timeout configuration will be a required parameter.</p>
+</blockquote>
+<h2 id="another-data-structure-another-rust-dependency"><a class="header" href="#another-data-structure-another-rust-dependency">Another data structure, another Rust dependency</a></h2>
+<p>After all, that was the reason I chose Rust here.</p>
+<p><a href="https://crates.io/crates/crossbeam_channel"><code>crossbeam_channel</code></a> is a Rust library for multi-producer multi-consumer queues, with timeout support. Why do we need it here? Good question.</p>
+<p>We can store the pool as a plain array of objects and keep track of all "unused" indexes in the queue (in any order), so that when you call <code>.checkout</code> it'll <code>.pop</code> from the queue and return <code>[obj, idx]</code>, and you call <code>.checkin(idx)</code> it'll push it back to the queue. Of course, initially the queue should be filled with all available indexes from <code>0</code> to <code>POOL_SIZE</code>.</p>
+<p>Internally it can be visualized as this:</p>
+<p><img src="object_pool.png" alt="object pool" /></p>
+<ul>
+<li>green items are safe for direct usage by multiple threads</li>
+<li>blue items are not safe, but access to them is protected by green items</li>
+</ul>
+<p>Here's how it looks when 2 threads temporarily pop the value (orange values are still in the pool, but no thread can take it because its index is not in the queue):</p>
+<p><img src="object_pool_two_popped.png" alt="object pool 2 popped" /></p>
+<p>And finally this is what happens when the second thread returns the value back to the pool:</p>
+<p><img src="object_pool_one_returned.png" alt="object pool 1 returned" /></p>
+<p>This way each object will be either in the "unused" queue (implicitly, via its index) or in use by exactly one thread. And no synchronization of the underlying array is needed. That's the beauty of using existing ecosystem of great libraries.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use crossbeam_channel::{Receiver, Sender};
+use std::{ffi::c_ulong, time::Duration};
+
+// This is the pool itself
+pub struct FixedSizeObjectPool {
+    // a fixed-size array, as a Vec because we know its size only at runtime
+    // however it never resizes
+    pool: Vec&lt;c_ulong&gt;,
+    // "sending" part of the queue (that we "push" to)
+    tx: Sender&lt;usize&gt;,
+    // "receiving" part of the queue (that we "pop" from)
+    rx: Receiver&lt;usize&gt;,
+    timeout: Duration,
+}
+
+// We need to return a combination of `idx` and `object` from `.checkout` method,
+// so this struct simply represents it
+#[repr(C)]
+pub struct PooledItem {
+    pub idx: usize,
+    pub rbobj: c_ulong,
+}
+
+impl FixedSizeObjectPool {
+    // Exposed as `FixedSizeObjectPool.allocate` in Ruby
+    fn new() -&gt; Self {
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        Self {
+            pool: vec![],
+            tx,
+            rx,
+            timeout: Duration::MAX,
+        }
+    }
+
+    // Exposed as `FixedSizeObjectPool#initialize` in Ruby
+    fn init(
+        &amp;mut self,
+        size: usize,
+        timeout_in_ms: u64,
+        rb_make_obj: extern "C" fn(c_ulong) -&gt; c_ulong,
+    ) {
+        self.timeout = Duration::from_millis(timeout_in_ms);
+
+        self.pool = Vec::with_capacity(size);
+        for idx in 0..size {
+            self.pool.push((rb_make_obj)(0));
+            self.tx.send(idx).unwrap();
+        }
+    }
+
+    // Our standard "marking" routine, similar to the one we had for DashMap
+    fn mark(&amp;self, f: extern "C" fn(c_ulong)) {
+        for item in self.pool.iter() {
+            f(*item);
+        }
+    }
+
+    // Exposed as `FixedSizeObjectPool#checkout` in Ruby
+    fn checkout(&amp;mut self) -&gt; Option&lt;PooledItem&gt; {
+        let idx = self.rx.recv_timeout(self.timeout).ok()?;
+        Some(PooledItem {
+            idx,
+            rbobj: self.pool[idx],
+        })
+    }
+
+    // Exposed as `FixedSizeObjectPool#checkin` in Ruby
+    fn checkin(&amp;mut self, idx: usize) {
+        self.tx.send(idx).expect("bug: receiver has been dropped");
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Then the only unusual part is error handling around <code>checkout</code> method:</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[no_mangle]
+pub unsafe extern "C" fn fixed_size_object_pool_checkout(pool: *mut FixedSizeObjectPool) -&gt; PooledItem {
+    let pool = unsafe { pool.as_mut().unwrap() };
+    pool.checkout().unwrap_or(PooledItem { idx: 0, rbobj: 0 })
+}
+<span class="boring">}</span></code></pre></pre>
+<p>So if we get a timeout error we return <code>[0, 0]</code> pair as <code>[obj, idx]</code>. And then in C we can do:</p>
+<pre><code class="language-c">VALUE rb_fixed_size_object_pool_checkout(VALUE self) {
+  fixed_size_object_pool_t *pool;
+  TypedData_Get_Struct(self, fixed_size_object_pool_t, &amp;fixed_size_object_pool_data, pool);
+  PooledItem pooled = fixed_size_object_pool_checkout(pool);
+  if (pooled.idx == 0 &amp;&amp; pooled.rbobj == 0) {
+    return Qnil;
+  }
+  VALUE ary = rb_ary_new_capa(2);
+  rb_ary_push(ary, pooled.rbobj);
+  rb_ary_push(ary, LONG2FIX(pooled.idx));
+  return ary;
+}
+</code></pre>
+<p>Which either returns <code>[obj, idx]</code> literally as an array of two elements or returns <code>nil</code> otherwise.</p>
+<p>With these <code>.checkout</code> and <code>.checkin</code> methods we can build a wrapper:</p>
+<pre><code class="language-ruby">module CAtomics
+  class FixedSizeObjectPool
+    def with
+      obj_and_idx = checkout
+      if obj_and_idx.nil?
+        raise 'timeout error'
+      else
+        yield obj_and_idx[0]
+      end
+    ensure
+      unless obj_and_idx.nil?
+        checkin(obj_and_idx[1])
+      end
+    end
+  end
+end
+</code></pre>
+<p>Does this work?</p>
+<pre><code class="language-ruby">POOL_SIZE = 5
+objects = 1.upto(POOL_SIZE).map { |i| ["pool-object-#{i}"] }
+POOL = CAtomics::FixedSizeObjectPool.new(POOL_SIZE, 1_000) { objects.shift }
+
+ractors = 1.upto(POOL_SIZE).map do |i|
+  Ractor.new(i) do |i|
+    10.times do |j|
+      POOL.with do |v|
+        v.push([i, j])
+      end
+    end
+
+    Ractor.yield :done
+  end
+end
+
+p ractors.map(&amp;:take)
+# =&gt; [:done, :done, :done, :done, :done]
+
+POOL_SIZE.times do
+  p POOL.checkout
+end
+# =&gt; [["pool-object-1", [1, 0], [2, 3], [1, 5], [1, 7], [3, 0], [3, 5], [4, 0], [4, 5], [5, 0], [5, 5]], 0]
+# =&gt; [["pool-object-2", [2, 0], [1, 2], [2, 5], [2, 8], [3, 1], [3, 6], [4, 1], [4, 6], [5, 1], [5, 6]], 1]
+# =&gt; [["pool-object-3", [1, 1], [2, 4], [2, 6], [1, 8], [3, 2], [3, 7], [4, 2], [4, 7], [5, 2], [5, 7]], 2]
+# =&gt; [["pool-object-4", [2, 1], [1, 3], [1, 6], [2, 9], [3, 3], [3, 8], [4, 3], [4, 8], [5, 3], [5, 8]], 3]
+# =&gt; [["pool-object-5", [2, 2], [1, 4], [2, 7], [1, 9], [3, 4], [3, 9], [4, 4], [4, 9], [5, 4], [5, 9]], 4]
+
+POOL.with { |obj| }
+# =&gt; c_atomics/lib/c_atomics.rb:24:in 'CAtomics::FixedSizeObjectPool#with': timeout error (RuntimeError)
+# =&gt;    from tests/fixed-size-object-pool.rb:23:in '&lt;main&gt;'
+</code></pre>
+<p>As you can see each object in our pool (which is an array that accumulates values from different Ractors) has been used by 5 different threads, and when we take all items from the pool at the end (using <code>.checkout</code>) and call <code>.with</code> again on an empty pool, then it throws an error after 1 second.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="concurrent_hash_map.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="naive_concurrent_queue.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="concurrent_hash_map.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="naive_concurrent_queue.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+    </div>
+    </body>
+</html>
