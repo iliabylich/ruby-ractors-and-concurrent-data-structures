@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Ruby, Ractors, and Concurrent Data Structures</title>
+        <title>Ruby, Ractors, and Lock-Free Data Structures</title>
         <meta name="robots" content="noindex">
 
 
@@ -121,7 +121,7 @@
                         </button>
                     </div>
 
-                    <h1 class="menu-title">Ruby, Ractors, and Concurrent Data Structures</h1>
+                    <h1 class="menu-title">Ruby, Ractors, and Lock-Free Data Structures</h1>
 
                     <div class="right-buttons">
                         <a href="print.html" title="Print this book" aria-label="Print this book">
@@ -191,12 +191,12 @@
 <p>After reading the previous section you might be under the impression that it's easier to think about Ruby heap as if there was a single "shared" heap full of frozen objects and a bunch of per-Ractor heaps that are mutable if you access it from the Ractor that owns it. Yes, maybe it's easier, but in reality, it's still a single heap, and every object is accessible by every Ractor.</p>
 <pre><code class="language-ruby">o = Object.new
 Ractor.make_shareable(o)
-id = o.object_id
-puts "[MAIN] #{id} #{o}"
+ID = o.object_id
+puts "[MAIN] #{ID} #{o}"
 
-r = Ractor.new(id) do |id|
-  o2 = ObjectSpace._id2ref(id)
-  puts "[NON-MAIN] #{id} #{o2}"
+r = Ractor.new do
+  o2 = ObjectSpace._id2ref(ID)
+  puts "[NON-MAIN] #{ID} #{o2}"
   Ractor.yield :done
 end
 
@@ -208,6 +208,67 @@ r.take
 </code></pre>
 <p>which proves the statement above. However, removing the line <code>Ractor.make_shareable(o)</code> breaks the code with an error <code>"5016" is id of the unshareable object on multi-ractor (RangeError)</code> (By the way, why is it a <code>RangeError</code>?).</p>
 <p>How can we make an object shareable (i.e. deeply frozen) but still mutable? Well, we can attach data on the C level to this object and make it mutable.</p>
+<h2 id="side-note-concurrent-access-is-still-possible"><a class="header" href="#side-note-concurrent-access-is-still-possible">Side note: concurrent access is still possible</a></h2>
+<p>The snippet above requires calling <code>Ractor.make_shareable</code> because we use built-in Ruby methods, but what if we define our own functions?</p>
+<pre><code class="language-c">// Converts given `obj` to its address
+VALUE rb_obj_to_address(VALUE self, VALUE obj) { return LONG2NUM(obj); }
+// Converts given address back to the object
+VALUE rb_address_to_obj(VALUE self, VALUE obj) { return NUM2LONG(obj); }
+
+// and then somewhere in the initialization logic
+rb_define_global_function("obj_to_address", rb_obj_to_address, 1);
+rb_define_global_function("address_to_obj", rb_address_to_obj, 1);
+</code></pre>
+<p>We defined two functions:</p>
+<pre><code class="language-ruby">irb&gt; o = "foo"
+=&gt; "foo"
+irb&gt; obj_to_address(o)
+=&gt; 140180443876200
+irb&gt; obj_to_address(o)
+=&gt; 140180443876200
+irb&gt; address_to_obj(obj_to_address(o))
+=&gt; "foo"
+</code></pre>
+<p>Let's see if the hack works:</p>
+<pre><code class="language-ruby">require_relative './helper'
+
+o = Object.new
+ADDRESS = obj_to_address(o)
+puts "[MAIN] #{ADDRESS} #{o}"
+
+r = Ractor.new do
+  o2 = address_to_obj(ADDRESS)
+  puts "[NON-MAIN] #{ADDRESS} #{o2}"
+  Ractor.yield :done
+end
+
+r.take
+</code></pre>
+<p>prints</p>
+<pre><code>[MAIN] 140194730661200 #&lt;Object:0x00007f81a11ed550&gt;
+[NON-MAIN] 140194730661200 #&lt;Object:0x00007f81a11ed550&gt;
+</code></pre>
+<p>Of course doing this without adding any thread-safe wrappers is simply wrong. For example, the following snippet causes segfault:</p>
+<pre><code class="language-ruby">require_relative './helper'
+
+array = []
+ADDRESS = obj_to_address(array)
+
+ractors = 2.times.map do\
+  # 2 threads
+  Ractor.new do
+    obj = address_to_obj(ADDRESS)
+    # each mutates a shared non-thread-safe array
+    1_000_000.times do
+      obj.push(42)
+      obj.pop
+    end
+    Ractor.yield :done
+  end
+end
+
+p ractors.map(&amp;:take)
+</code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="counter-the-wrong-way"><a class="header" href="#counter-the-wrong-way">Counter, the wrong way</a></h1>
 <p>I'm going to write all data structures here in Rust, and then wrap them with C.</p>
 <p>Here's the wrong, non-thread-safe counter struct:</p>
