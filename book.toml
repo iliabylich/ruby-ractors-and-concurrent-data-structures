@@ -3,4 +3,4 @@ authors = ["Ilya Bylich"]
 language = "en"
 multilingual = false
 src = "src"
-title = "Ruby, Ractors, and Concurrent Data Structures"
+title = "Ruby, Ractors, and Lock-Free Data Structures"
